@@ -148,8 +148,8 @@ namespace DisBot {
                         string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 3 + 1 + args[1].String.Length + 1);
                         data = data.Trim('`', ' ', '\n').Trim();
                         setter(data);
-                        server.Send(msg.Channel, $"Property `{args[1]}` updated.");
                         server.Save();
+                        server.Send(msg.Channel, $"Property `{args[1]}` updated.");
                         return;
                     }
 

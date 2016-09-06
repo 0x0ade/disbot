@@ -102,9 +102,6 @@ namespace DisBot {
             using (StreamWriter writer = new StreamWriter(path)) {
                 foreach (KeyValuePair<string, Func<string>> nameGetPair in OnSave) {
                     string value = nameGetPair.Value();
-                    if (string.IsNullOrWhiteSpace(value)) {
-                        continue;
-                    }
                     writer.Write(nameGetPair.Key);
                     writer.Write(":");
                     writer.Write(value);
@@ -248,7 +245,7 @@ namespace DisBot {
 
         public bool IsBotCommander(User user) {
             foreach (Role role in user.Roles) {
-                if (role.Name == BotCommander) {
+                if (role.Name == BotCommander || role.Name == "Bot Commander") {
                     return true;
                 }
             }
