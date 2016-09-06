@@ -134,6 +134,7 @@ namespace DisBot {
                         data = data.Trim('`', ' ', '\n').Trim();
                         File.WriteAllText(Path.Combine(RootDir, server.Dir, server.ConfigFile), data);
                         server.Load();
+                        server.Save();
                         server.Send(msg.Channel, "Data imported.");
                         return;
                     }
