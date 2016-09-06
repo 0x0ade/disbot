@@ -16,6 +16,7 @@ namespace DisBot {
 
         public string Dir;
         public string LogFile = "log.txt";
+        public string ConfigFile = "config.txt";
         public string ImageDir = "images";
 
         public string BotCommander = "Bot Commander";
@@ -29,10 +30,19 @@ namespace DisBot {
         public List<string> Images = new List<string>();
         public string LastImage;
 
+        public Dictionary<string, Action<string>> OnLoad = new Dictionary<string, Action<string>>();
+        public Dictionary<string, Func<string>> OnSave = new Dictionary<string, Func<string>>();
+
         public DisBotServerConfig(Server server) {
             Server = server;
 
             Dir = server != null ? server.Name + "-" + server.Id : "PM";
+
+            OnLoad["Prefix"] = (s) => Prefix = s;
+            OnSave["Prefix"] = () => Prefix;
+
+            OnLoad["BotCommander"] = (s) => BotCommander = s;
+            OnSave["BotCommander"] = () => BotCommander;
         }
 
         public void Init() {
@@ -42,6 +52,60 @@ namespace DisBot {
 
             Commands.AddRange(DisBotCore.Commands);
             Parsers.AddRange(DisBotCore.Parsers);
+
+            Load();
+        }
+
+        public void Load() {
+            string path = Path.Combine(DisBotCore.RootDir, Dir, ConfigFile);
+            if (!File.Exists(path)) {
+                return;
+            }
+            string[] lines = File.ReadAllLines(path);
+            for (int i = 0; i < lines.Length; i++) {
+                string line = lines[i];
+                if (string.IsNullOrWhiteSpace(line)) {
+                    continue;
+                }
+                line = line.Trim();
+                string[] data = line.Split(':');
+                if (2 < data.Length) {
+                    StringBuilder newData = new StringBuilder();
+                    for (int ii = 1; ii < data.Length; ii++) {
+                        newData.Append(data[ii]);
+                        if (ii < data.Length - 1) {
+                            newData.Append(':');
+                        }
+                    }
+                    data = new string[] { data[0], newData.ToString() };
+                }
+                data[0] = data[0].Trim();
+                data[1] = data[1].Trim();
+
+                Action<string> d;
+                if (data[1].Length != 0 && OnLoad.TryGetValue(data[0], out d)) {
+                    d(data[1]);
+                }
+            }
+        }
+
+        public void Save() {
+            string path = Path.Combine(DisBotCore.RootDir, Dir, ConfigFile);
+            if (File.Exists(path)) {
+                File.Delete(path);
+            }
+            using (StreamWriter writer = new StreamWriter(path)) {
+                foreach (KeyValuePair<string, Func<string>> nameGetPair in OnSave) {
+                    string value = nameGetPair.Value();
+                    if (string.IsNullOrWhiteSpace(value)) {
+                        continue;
+                    }
+                    writer.Write(nameGetPair.Key);
+                    writer.Write(":");
+                    writer.Write(value);
+                    writer.WriteLine();
+                }
+            }
         }
 
         public void RefreshImageCache() {
@@ -58,7 +122,7 @@ namespace DisBot {
 
         public virtual async void MessageReceived(object sender, MessageEventArgs e) {
             Log(e.Message.IsAuthor ? "self" : e.Message.User.IsBot ? "bot" : e.Message.Text.StartsWith(Prefix) ? "cmd" : "msg",
-                e.Server?.Name ?? "PM", e.Channel.Name, e.User.ToString(), e.Message.Text, time: e.Message.Timestamp);
+                e.Channel.Name, e.User.ToString(), e.Message.Text, time: e.Message.Timestamp);
             if (e.Message.IsAuthor) return;
 
             foreach (DisBotParser parser in Parsers) await parser.Parse(this, e.Message);
@@ -88,9 +152,9 @@ namespace DisBot {
                 return;
             }
             using (FileStream stream = File.OpenRead(imguri)) {
-                Log("bot", $"Uploading {imguri}");
+                Log("internal", $"Uploading {imguri}");
                 await channel.SendFile(Path.GetFileName(imguri), stream);
-                Log("bot", "Uploaded.");
+                Log("internal", "Uploaded.");
             }
         }
 
@@ -105,7 +169,12 @@ namespace DisBot {
             }
 
             await msg.Channel.SendIsTyping();
-            await cmd.Parse(this, msg);
+            try {
+                await cmd.Parse(this, msg);
+            } catch (Exception e) {
+                Send(msg.Channel, $"Something went horribly wrong! Consult `{Prefix}log internal`");
+                Log("internal", e.ToString());
+            }
         }
 
         public virtual DisBotCommand GetCommand(string cmdName) {
@@ -118,13 +187,13 @@ namespace DisBot {
             return null;
         }
 
-        public void Log(string tag, string server, string channel, string message, DateTime time = default(DateTime)) {
+        public void Log(string tag, string channel, string message, DateTime time = default(DateTime)) {
             if (message.Contains('\n')) message = "\n" + message;
-            Log(tag, $"({time.DateString()})[{tag} @ {server}/{channel}] {message}");
+            Log(tag, $"({time.DateString()})[{tag} @ {Server?.Name ?? "PM"}/{channel}] {message}");
         }
-        public void Log(string tag, string server, string channel, string user, string message, DateTime time = default(DateTime)) {
+        public void Log(string tag, string channel, string user, string message, DateTime time = default(DateTime)) {
             if (message.Contains('\n')) message = "\n" + message;
-            Log(tag, $"({time.DateString()})[{tag} @ {server}/{channel}] {user}: {message}");
+            Log(tag, $"({time.DateString()})[{tag} @ {Server?.Name ?? "PM"}/{channel}] {user}: {message}");
         }
         public void Log(string tag, string message, DateTime time = default(DateTime)) {
             if (message.Contains('\n')) message = "\n" + message;

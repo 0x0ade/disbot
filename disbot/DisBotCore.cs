@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -13,6 +14,8 @@ namespace DisBot {
     public static class DisBotCore {
 
         public static string NL;
+
+        public static readonly Lazy<Version> Version = new Lazy<Version>(() => Assembly.GetExecutingAssembly().GetName().Version);
 
         private static DiscordClient Client;
 
@@ -60,6 +63,7 @@ namespace DisBot {
                     StringBuilder builder = new StringBuilder();
 
                     if (args.Length == 0) {
+                        builder.Append("**disbot ").Append(Version.Value.ToString()).AppendLine("**");
                         builder.Append("This server has got **").Append(server.Commands.Count).Append(" commands** and **").Append(server.Parsers.Count).AppendLine(" parsers.**");
                         builder.AppendLine();
 
@@ -101,6 +105,47 @@ namespace DisBot {
                     }
 
                     server.Send(msg.Channel, builder.ToString());
+                }
+            });
+
+            Commands.Add(new DisBotDCommand() {
+                Name = "conf",
+                Info = "Configuration management command.",
+                Help = "export | import [data] | get [prop] | set [prop] [value]",
+                OnRun = delegate (DisBotDCommand cmd_, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (args.Length == 1 && args[0] == "export") {
+                        server.Save();
+                        server.Send(msg.Channel, $"```\n{File.ReadAllText(Path.Combine(RootDir, server.Dir, server.ConfigFile))}\n```");
+                        return;
+                    }
+
+                    if (args.Length == 2 && args[0] == "get") {
+                        Func<string> getter;
+                        if (!server.OnSave.TryGetValue(args[1], out getter)) {
+                            server.Send(msg.Channel, $"Property `{args[1]}` not found! Property names are case-sensitive!");
+                            return;
+                        }
+                        server.Send(msg.Channel, $"```\n{getter()}\n```");
+                        return;
+                    }
+
+                    if (args.Length >= 2 && args[0] == "import") {
+                        string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 6 + 1);
+                        data = data.Trim();
+                        data = data.Trim('`');
+                        File.WriteAllText(Path.Combine(RootDir, server.Dir, server.ConfigFile), data);
+                        server.Load();
+                        server.Send(msg.Channel, "Data imported.");
+                        return;
+                    }
+
+                    if (args.Length >= 3 && args[0] == "set") {
+                        server.Send(msg.Channel, "Not yet.");
+                        return;
+                    }
+
+                    Task.Run(() => server.GetCommand("help").Run(server, msg, new DisBotCommandArg(cmd_.Name)));
+                    return;
                 }
             });
 
@@ -176,8 +221,8 @@ namespace DisBot {
                             } catch (Exception e) {
                                 reply = await replyT;
                                 server.Log("bot", "Download failed.");
-                                server.Log("error", msg.Server.Name, msg.Channel.Name, e.ToString());
-                                await reply.Edit($"Something went wrong! Consult `{server.Prefix}log error`");
+                                server.Log("internal", msg.Server.Name, msg.Channel.Name, e.ToString());
+                                await reply.Edit($"Something went wrong! Consult `{server.Prefix}log internal`");
                                 return;
                             }
 
@@ -502,11 +547,13 @@ namespace DisBot {
                 Info = "hoho no.",
                 OnParse = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
                     string text = msg.Text.ToLowerInvariant();
-                    return text.Contains("haha") && text.Contains("yes");
+                    return
+                        (text.Contains("haha") && text.Contains("yes")) ||
+                        (text.Contains("fun") && text.Contains("central"));
                 },
                 OnRun = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
-                    if (RNG.Next(4) <= 1) return;
-                    server.Send(msg.Channel, RNG.Next(4) <= 1 ? "hoho no" : "hoho **NO.**");
+                    if (RNG.Next(6) > 1) return;
+                    server.Send(msg.Channel, RNG.Next(4) <= 1 ? "hoho **NO.**" : RNG.Next(4) <= 1 ? "haha yes" : "hoho no");
                 }
             });
 
