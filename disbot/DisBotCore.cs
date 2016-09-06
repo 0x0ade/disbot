@@ -108,7 +108,7 @@ namespace DisBot {
                 Name = "echo",
                 Info = "Repeats what you said.",
                 Help = "[anything]",
-                OnRun = (cmd, server, msg, args) => server.Send(msg.Channel, msg.Text.Substring(msg.Text.IndexOf(' ')).Trim())
+                OnRun = (cmd, server, msg, args) => server.Send(msg.Channel, msg.Text.Substring(Math.Max(0, msg.Text.IndexOf(' '))).Trim())
             });
 
             Commands.Add(new DisBotDCommand() {
@@ -507,6 +507,25 @@ namespace DisBot {
                 OnRun = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
                     if (RNG.Next(4) <= 1) return;
                     server.Send(msg.Channel, RNG.Next(4) <= 1 ? "hoho no" : "hoho **NO.**");
+                }
+            });
+
+            Parsers.Add(new DisBotDParser() {
+                Name = "prefix",
+                Info = "Set the disbot prefix (not a command): @disbot prefix [prefix]",
+                OnParse = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
+                    string[] split = msg.Text.Split(' ');
+                    return msg.IsMentioningMe() && split.Length == 3 && split[1] == "prefix";
+                },
+                OnRun = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
+                    if (!server.IsBotCommander(msg.User)) {
+                        server.Send(msg.Channel, "You're not a bot commander.");
+                        return;
+                    }
+                    string[] split = msg.Text.Split(' ');
+                    string prefix = split[2].Trim();
+                    server.Prefix = prefix;
+                    server.Send(msg.Channel, $"Prefix set to `{prefix}`.");
                 }
             });
         }

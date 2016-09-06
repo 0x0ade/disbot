@@ -18,6 +18,8 @@ namespace DisBot {
         public string LogFile = "log.txt";
         public string ImageDir = "images";
 
+        public string BotCommander = "Bot Commander";
+
         public LogBuffer LogBuffer = new LogBuffer();
         protected Dictionary<string, LogBuffer> _taggedLogBuffers = new Dictionary<string, LogBuffer>();
 
@@ -69,6 +71,8 @@ namespace DisBot {
         }
 
         public virtual async void Send(Channel channel, string text) {
+            text = text.Trim();
+            if (text.Length == 0) return;
             if (text.Length > DiscordConfig.MaxMessageSize) {
                 int lastnl = text.LastIndexOf("\n", DiscordConfig.MaxMessageSize, DiscordConfig.MaxMessageSize);
                 if (lastnl < 0) lastnl = DiscordConfig.MaxMessageSize;
@@ -164,6 +168,15 @@ namespace DisBot {
             get {
                 return _taggedLogBuffers.Keys;
             }
+        }
+
+        public bool IsBotCommander(User user) {
+            foreach (Role role in user.Roles) {
+                if (role.Name == BotCommander) {
+                    return true;
+                }
+            }
+            return false;
         }
 
     }
