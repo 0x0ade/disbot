@@ -131,8 +131,7 @@ namespace DisBot {
 
                     if (args.Length >= 2 && args[0] == "import") {
                         string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 6 + 1);
-                        data = data.Trim();
-                        data = data.Trim('`');
+                        data = data.Trim('`', ' ', '\n').Trim();
                         File.WriteAllText(Path.Combine(RootDir, server.Dir, server.ConfigFile), data);
                         server.Load();
                         server.Send(msg.Channel, "Data imported.");
@@ -140,7 +139,16 @@ namespace DisBot {
                     }
 
                     if (args.Length >= 3 && args[0] == "set") {
-                        server.Send(msg.Channel, "Not yet.");
+                        Action<string> setter;
+                        if (!server.OnLoad.TryGetValue(args[1], out setter)) {
+                            server.Send(msg.Channel, $"Property `{args[1]}` not found! Property names are case-sensitive!");
+                            return;
+                        }
+                        string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 3 + 1 + args[1].String.Length + 1);
+                        data = data.Trim('`', ' ', '\n').Trim();
+                        setter(data);
+                        server.Send(msg.Channel, $"Property `{args[1]}` updated.");
+                        server.Save();
                         return;
                     }
 
@@ -572,6 +580,7 @@ namespace DisBot {
                     string[] split = msg.Text.Split(' ');
                     string prefix = split[2].Trim();
                     server.Prefix = prefix;
+                    server.Save();
                     server.Send(msg.Channel, $"Prefix set to `{prefix}`.");
                 }
             });

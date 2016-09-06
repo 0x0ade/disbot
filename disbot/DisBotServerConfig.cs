@@ -21,6 +21,8 @@ namespace DisBot {
 
         public string BotCommander = "Bot Commander";
 
+        public string CommandNotFound = "Command not found: `{0}`";
+
         public LogBuffer LogBuffer = new LogBuffer();
         protected Dictionary<string, LogBuffer> _taggedLogBuffers = new Dictionary<string, LogBuffer>();
 
@@ -43,6 +45,9 @@ namespace DisBot {
 
             OnLoad["BotCommander"] = (s) => BotCommander = s;
             OnSave["BotCommander"] = () => BotCommander;
+
+            OnLoad["CommandNotFound"] = (s) => CommandNotFound = s;
+            OnSave["CommandNotFound"] = () => CommandNotFound;
         }
 
         public void Init() {
@@ -164,7 +169,9 @@ namespace DisBot {
 
             DisBotCommand cmd = GetCommand(cmdName);
             if (cmd == null) {
-                Send(msg.Channel, "Command not found: \"" + cmdName + "\"");
+                if (!string.IsNullOrWhiteSpace(CommandNotFound)) {
+                    Send(msg.Channel, string.Format(CommandNotFound, cmdName));
+                }
                 return;
             }
 
