@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,6 +17,11 @@ namespace DisBot {
         public static string NL;
 
         public static readonly Lazy<Version> Version = new Lazy<Version>(() => Assembly.GetExecutingAssembly().GetName().Version);
+        public static readonly Lazy<string> PublicIP = new Lazy<string>(delegate () {
+            using (WebClient wc = new WebClient()) {
+                return wc.DownloadString("http://ipinfo.io/ip").Trim();
+            }
+        });
 
         private static DiscordClient Client;
 
@@ -26,7 +32,7 @@ namespace DisBot {
 
         public static Random RNG;
 
-        private static Dictionary<ulong, DisBotServerConfig> Servers = new Dictionary<ulong, DisBotServerConfig>();
+        public static Dictionary<ulong, DisBotServerConfig> Servers = new Dictionary<ulong, DisBotServerConfig>();
 
         public static List<DisBotCommand> Commands = new List<DisBotCommand>();
         public static List<DisBotParser> Parsers = new List<DisBotParser>();
@@ -109,6 +115,32 @@ namespace DisBot {
             });
 
             Commands.Add(new DisBotDCommand() {
+                Name = "bot",
+                Info = "Info about the current disbot instance.",
+                Help = "",
+                OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    StringBuilder builder = new StringBuilder();
+                    builder.Append("**disbot ").Append(Version.Value.ToString()).AppendLine("** by 0x0ade.");
+                    builder
+                        .Append("Running on *").Append(Environment.OSVersion)
+                        .Append("* @ `").Append(Dns.GetHostName())
+                        .Append(" (").Append(PublicIP.Value).AppendLine(")`");
+
+                    builder.AppendLine();
+                    builder.Append("disbot is being used on **").Append(Servers.Count).AppendLine("** servers!");
+
+                    builder.AppendLine();
+                    builder.AppendLine("Info for this server:");
+                    builder.Append("**").Append(server.Commands.Count).AppendLine("** commands.");
+                    builder.Append("**").Append(server.Aliases.Count).AppendLine("** aliases.");
+                    builder.Append("**").Append(server.Parsers.Count).AppendLine("** parsers.");
+                    builder.Append("**").Append(server.Images.Count).AppendLine("** images.");
+
+                    server.Send(msg.Channel, builder.ToString());
+                }
+            });
+
+            Commands.Add(new DisBotDCommand() {
                 Name = "conf",
                 Info = "Configuration management command.",
                 Help = "export | import [data] | get [prop] | set [prop] [value]",
@@ -126,6 +158,10 @@ namespace DisBot {
                             return;
                         }
                         server.Send(msg.Channel, $"```\n{getter()}\n```");
+                        return;
+                    }
+
+                    if (!server.IsBotCommander(msg.User, msg)) {
                         return;
                     }
 
@@ -150,6 +186,83 @@ namespace DisBot {
                         setter(data);
                         server.Save();
                         server.Send(msg.Channel, $"Property `{args[1]}` updated.");
+                        return;
+                    }
+
+                    Task.Run(() => server.GetCommand("help").Run(server, msg, new DisBotCommandArg(cmd_.Name)));
+                    return;
+                }
+            });
+
+            Commands.Add(new DisBotDCommand() {
+                Name = "alias",
+                Info = "Alias management command.",
+                Help = "+ [alias] [cmd] <args> | - [alias] | [alias]",
+                OnRun = delegate (DisBotDCommand cmd_, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (args.Length == 1) {
+                        string aliasName = args[0];
+                        if (aliasName.StartsWith(server.Prefix)) {
+                            aliasName = aliasName.Substring(server.Prefix.Length);
+                        }
+                        string aliasCmd = server.GetAlias(aliasName);
+                        if (aliasCmd == null) {
+                            server.Send(msg.Channel, $"Alias `{aliasName}` not found! Add a new one via `{server.Prefix}{cmd_.Name} + {aliasName} [cmd] <args>`");
+                            return;
+                        }
+
+                        StringBuilder builder = new StringBuilder();
+                        builder.Append("Alias `").Append(aliasName).AppendLine("`:");
+                        builder.AppendLine("```");
+                        builder.Append(server.Prefix).AppendLine(aliasCmd);
+                        builder.AppendLine("```");
+
+                        server.Send(msg.Channel, builder.ToString());
+                        return;
+                    }
+
+                    if (args.Length == 2 && args[0] == "-") {
+                        Tuple<string, string> alias = server.GetAliasTuple(args[1]);
+                        if (alias == null) {
+                            server.Send(msg.Channel, $"Alias `{args[1]}` not found! Add a new one via `{server.Prefix}{cmd_.Name} + {args[1]} [cmd] <args>`");
+                            return;
+                        }
+
+                        server.Aliases.Remove(alias);
+                        server.Save();
+                        server.Send(msg.Channel, $"Alias `{args[1]}` removed!");
+                        return;
+                    }
+
+                    if (args.Length >= 3 && (args[0] == "+" || args[0] == "add-")) {
+                        DisBotCommand cmd = server.GetCommand(args[1]);
+                        if (cmd != null) {
+                            server.Send(msg.Channel, $"Command `{args[1]}` already existing!");
+                            return;
+                        }
+
+                        string aliasName = args[1].String;
+                        if (aliasName.StartsWith(server.Prefix)) {
+                            aliasName = aliasName.Substring(server.Prefix.Length);
+                        }
+
+                        Tuple<string, string> alias = server.GetAliasTuple(aliasName);
+                        if (alias != null) {
+                            server.Send(msg.Channel, $"Alias `{aliasName}` already existing!");
+                            return;
+                        }
+
+                        string aliasCmd = msg.Text.Substring(
+                            msg.Text.IndexOf(' ') +
+                            args[0].String.Length + 1 +
+                            args[1].String.Length + 1
+                        ).Trim();
+                        if (aliasCmd.StartsWith(server.Prefix)) {
+                            aliasCmd = aliasCmd.Substring(server.Prefix.Length);
+                        }
+
+                        server.Aliases.Add(Tuple.Create(aliasName, aliasCmd));
+                        server.Save();
+                        server.Send(msg.Channel, $"Alias `{aliasName}` added!");
                         return;
                     }
 
@@ -184,7 +297,7 @@ namespace DisBot {
 
                     string url, imguri;
 
-                    if ((1 <= args.Length && args.Length <= 2) && args[0].String.StartsWith("+")) {
+                    if (((1 <= args.Length && args.Length <= 2) && args[0].String.StartsWith("+")) || (args.Length == 2 && args[0] == "add")) {
                         if (msg.Attachments.Length == 0 && args.Length == 1 && args[0].String.Length == 1) {
                             server.Send(msg.Channel, "You didn't attach any image to your message!");
                             return;
@@ -254,6 +367,7 @@ namespace DisBot {
                         server.RefreshImageCache();
                         server.Send(msg.Channel, $"Image {Path.GetFileName(server.LastImage)} removed!");
                         server.LastImage = null;
+                        return;
                     }
 
                     if (args.Length == 2 && args[0] == "-") {
@@ -376,7 +490,7 @@ namespace DisBot {
                         builder.AppendLine("Found following images for this server:");
 
                         for (int i = 0; i < server.Images.Count; i++) {
-                            builder.Append(" ").AppendLine(Path.GetFileName(server.Images[i]));
+                            builder.Append(" ").AppendLine(Path.GetFileName(server.Images[i]).Replace('_', ' '));
                         }
 
                         builder.AppendLine();
@@ -574,8 +688,7 @@ namespace DisBot {
                     return msg.IsMentioningMe() && split.Length == 3 && split[1] == "prefix";
                 },
                 OnRun = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
-                    if (!server.IsBotCommander(msg.User)) {
-                        server.Send(msg.Channel, "You're not a bot commander.");
+                    if (!server.IsBotCommander(msg.User, msg)) {
                         return;
                     }
                     string[] split = msg.Text.Split(' ');
@@ -620,6 +733,20 @@ namespace DisBot {
             if (Servers.ContainsKey(server.Id)) {
                 Servers.Remove(server.Id);
             }
+        }
+
+        private readonly static object[] a_object_0 = new object[0];
+
+        private readonly static MethodInfo m_Message_Clone =
+            typeof(Message).GetMethod("Clone", BindingFlags.NonPublic | BindingFlags.Instance);
+        private readonly static MethodInfo m_Message_set_Text =
+            typeof(Message).GetProperty("Text", BindingFlags.Public | BindingFlags.Instance).GetSetMethod(true);
+        public static Message Clone(this Message msg, string text = null) {
+            Message clone = (Message) m_Message_Clone.Invoke(msg, a_object_0);
+            if (text != null) {
+                m_Message_set_Text.Invoke(clone, new object[] { text });
+            }
+            return clone;
         }
 
     }

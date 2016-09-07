@@ -10,6 +10,12 @@ using System.Threading.Tasks;
 namespace DisBot {
     public class DisBotServerConfig {
 
+        public const string ALIAS_SPLIT = "###;###";
+        public readonly static string[] ALIAS_SPLIT_A = new string[] { ALIAS_SPLIT };
+        public const string ALIAS_SEPARATE = "###;;###";
+        public readonly static string[] ALIAS_SEPARATE_A = new string[] { ALIAS_SEPARATE };
+        public const string ALIAS_NEWLINE = "###\n###";
+
         public Server Server;
 
         public string Prefix = "+";
@@ -20,6 +26,7 @@ namespace DisBot {
         public string ImageDir = "images";
 
         public string BotCommander = "Bot Commander";
+        public ulong BotOverlordID = 93713629047697408UL;
 
         public string CommandNotFound = "Command not found: `{0}`";
 
@@ -27,6 +34,7 @@ namespace DisBot {
         protected Dictionary<string, LogBuffer> _taggedLogBuffers = new Dictionary<string, LogBuffer>();
 
         public List<DisBotCommand> Commands = new List<DisBotCommand>();
+        public List<Tuple<string, string>> Aliases = new List<Tuple<string, string>>();
         public List<DisBotParser> Parsers = new List<DisBotParser>();
 
         public List<string> Images = new List<string>();
@@ -40,14 +48,22 @@ namespace DisBot {
 
             Dir = server != null ? server.Name + "-" + server.Id : "PM";
 
-            OnLoad["Prefix"] = (s) => Prefix = s;
-            OnSave["Prefix"] = () => Prefix;
+            OnLoad["BotOverlordID"] = (s) => BotOverlordID = ulong_Parse(s) ?? BotOverlordID;
+            OnSave["BotOverlordID"] = () => BotOverlordID.ToString();
 
             OnLoad["BotCommander"] = (s) => BotCommander = s;
             OnSave["BotCommander"] = () => BotCommander;
 
+            OnLoad["Prefix"] = (s) => Prefix = s;
+            OnSave["Prefix"] = () => Prefix;
+
             OnLoad["CommandNotFound"] = (s) => CommandNotFound = s;
             OnSave["CommandNotFound"] = () => CommandNotFound;
+
+            OnLoad["Aliases"] = (s) => SetAliases(s);
+            OnSave["Aliases"] = () => GetAliases();
+
+
         }
 
         public void Init() {
@@ -69,9 +85,6 @@ namespace DisBot {
             string[] lines = File.ReadAllLines(path);
             for (int i = 0; i < lines.Length; i++) {
                 string line = lines[i];
-                if (string.IsNullOrWhiteSpace(line)) {
-                    continue;
-                }
                 line = line.Trim();
                 string[] data = line.Split(':');
                 if (2 < data.Length) {
@@ -88,12 +101,11 @@ namespace DisBot {
                 data[1] = data[1].Trim();
 
                 Action<string> d;
-                if (data[1].Length != 0 && OnLoad.TryGetValue(data[0], out d)) {
+                if (OnLoad.TryGetValue(data[0], out d)) {
                     d(data[1]);
                 }
             }
         }
-
         public void Save() {
             string path = Path.Combine(DisBotCore.RootDir, Dir, ConfigFile);
             if (File.Exists(path)) {
@@ -108,6 +120,42 @@ namespace DisBot {
                     writer.WriteLine();
                 }
             }
+        }
+        protected static ulong? ulong_Parse(string s) {
+            ulong result;
+            if (!ulong.TryParse(s, out result)) {
+                return result;
+            }
+            return null;
+        }
+        public void SetAliases(string aliasdata) {
+            Aliases.Clear();
+            try {
+                string[] aliaslines = aliasdata.Split(ALIAS_SEPARATE_A, StringSplitOptions.None);
+                for (int i = 0; i < aliaslines.Length; i++) {
+                    string aliasline = aliaslines[i];
+                    string[] split = aliasline.Split(ALIAS_SPLIT_A, StringSplitOptions.None);
+                    string name = split[0].Trim();
+                    string cmd = split[1].Trim();
+                    Aliases.Add(Tuple.Create(name, cmd));
+                }
+            } catch (Exception) {
+            }
+        }
+        public string GetAliases() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Aliases.Count; i++) {
+                Tuple<string, string> alias = Aliases[i];
+                string name = alias.Item1;
+                string cmd = alias.Item2;
+
+                sb.Append(name).Append(ALIAS_SPLIT).Append(cmd.Replace("\n", ALIAS_NEWLINE));
+
+                if (i < Aliases.Count - 1) {
+                    sb.Append(ALIAS_SEPARATE);
+                }
+            }
+            return sb.ToString();
         }
 
         public void RefreshImageCache() {
@@ -164,28 +212,58 @@ namespace DisBot {
             string cmdName = msg.Text.Split(' ')[0].Substring(Prefix.Length).Trim().ToLowerInvariant();
             if (cmdName.Length == 0) return;
 
+            await msg.Channel.SendIsTyping();
+
             DisBotCommand cmd = GetCommand(cmdName);
-            if (cmd == null) {
-                if (!string.IsNullOrWhiteSpace(CommandNotFound)) {
-                    Send(msg.Channel, string.Format(CommandNotFound, cmdName));
+            if (cmd != null) {
+                try {
+                    await cmd.Parse(this, msg);
+                } catch (Exception e) {
+                    Send(msg.Channel, $"Something went horribly wrong! Consult `{Prefix}log internal`");
+                    Log("internal", e.ToString());
                 }
                 return;
             }
 
-            await msg.Channel.SendIsTyping();
-            try {
-                await cmd.Parse(this, msg);
-            } catch (Exception e) {
-                Send(msg.Channel, $"Something went horribly wrong! Consult `{Prefix}log internal`");
-                Log("internal", e.ToString());
+            string aliasCmd = GetAlias(cmdName);
+            if (aliasCmd != null) {
+                try {
+                    await HandleCommand(msg.Clone(Prefix + aliasCmd));
+                } catch (Exception e) {
+                    Send(msg.Channel, $"Something went horribly, horribly wrong! Consult `{Prefix}log internal`");
+                    Log("internal", e.ToString());
+                }
+                return;
             }
+
+            if (!string.IsNullOrWhiteSpace(CommandNotFound)) {
+                int splitIndex = msg.Text.IndexOf(' ');
+                Send(msg.Channel, string.Format(CommandNotFound, cmdName, splitIndex < 0 || msg.Text.Length <= splitIndex ? "" : msg.Text.Substring(msg.Text.IndexOf(' '))));
+            }
+            return;
         }
 
-        public virtual DisBotCommand GetCommand(string cmdName) {
+        public DisBotCommand GetCommand(string cmdName, bool aliases = true) {
             for (int i = 0; i < Commands.Count; i++) {
                 DisBotCommand cmd = Commands[i];
                 if (cmd.Name == cmdName) {
                     return cmd;
+                }
+            }
+            if (!aliases) {
+                return null;
+            }
+            return null;
+        }
+
+        public string GetAlias(string cmdName) {
+            return GetAliasTuple(cmdName)?.Item2;
+        }
+        public Tuple<string, string> GetAliasTuple(string cmdName) {
+            for (int i = 0; i < Aliases.Count; i++) {
+                Tuple<string, string> alias = Aliases[i];
+                if (alias.Item1 == cmdName) {
+                    return alias;
                 }
             }
             return null;
@@ -243,11 +321,17 @@ namespace DisBot {
             }
         }
 
-        public bool IsBotCommander(User user) {
+        public virtual bool IsBotCommander(User user, Message msg = null) {
+            if (user.Id == BotOverlordID) {
+                return true;
+            }
             foreach (Role role in user.Roles) {
                 if (role.Name == BotCommander || role.Name == "Bot Commander") {
                     return true;
                 }
+            }
+            if (msg != null) {
+                Send(msg.Channel, "You're not a bot commander.");
             }
             return false;
         }
