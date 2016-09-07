@@ -129,6 +129,11 @@ namespace DisBot {
                     builder.AppendLine();
                     builder.Append("disbot is being used on **").Append(Servers.Count).AppendLine("** servers!");
 
+                    if (server.Server == null) {
+                        server.Send(msg.Channel, builder.ToString());
+                        return;
+                    }
+
                     builder.AppendLine();
                     builder.AppendLine("Info for this server:");
                     builder.Append("**").Append(server.Commands.Count).AppendLine("** commands.");
@@ -145,6 +150,10 @@ namespace DisBot {
                 Info = "Configuration management command.",
                 Help = "export | import [data] | get [prop] | set [prop] [value]",
                 OnRun = delegate (DisBotDCommand cmd_, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (server.Server == null) {
+                        return;
+                    }
+
                     if (args.Length == 1 && args[0] == "export") {
                         server.Save();
                         server.Send(msg.Channel, $"```\n{File.ReadAllText(Path.Combine(RootDir, server.Dir, server.ConfigFile))}\n```");
@@ -199,6 +208,10 @@ namespace DisBot {
                 Info = "Alias management command.",
                 Help = "+ [alias] [cmd] <args> | - [alias] | [alias]",
                 OnRun = delegate (DisBotDCommand cmd_, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (server.Server == null) {
+                        return;
+                    }
+
                     if (args.Length == 2 && args[0] == "-") {
                         Tuple<string, string> alias = server.GetAliasTuple(args[1]);
                         if (alias == null) {
@@ -303,7 +316,6 @@ namespace DisBot {
                 Help = "[any search query] | + [url] | + [attached image] | - [name] <number> | ~ <oldname> [newname]",
                 OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
                     if (server.Server == null) {
-                        server.Send(msg.Channel, "No +img in PMs. Sorry!");
                         return;
                     }
 
@@ -548,6 +560,9 @@ namespace DisBot {
                 Info = "Idea stolen from Zatherz. Sorry!",
                 Help = "[anything]",
                 OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (args.Length == 0) {
+                        return;
+                    }
                     string text = msg.Text.Substring(msg.Text.IndexOf(' ')).Trim();
                     string textLower = text.ToLowerInvariant();
 
@@ -592,7 +607,6 @@ namespace DisBot {
                 Help = "<tag (default: all) / list> <range (n, -n, a-b, a+n)>",
                 OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
                     if (server.Server == null) {
-                        server.Send(msg.Channel, "No +log in PMs. Sorry!");
                         return;
                     }
 
@@ -713,6 +727,9 @@ This account will never be used again, and I genuinely don't care what you do to
                     return msg.IsMentioningMe() && split.Length == 3 && split[1] == "prefix";
                 },
                 OnRun = delegate (DisBotDParser parser, DisBotServerConfig server, Message msg) {
+                    if (server.Server == null) {
+                        return;
+                    }
                     if (!server.IsBotCommander(msg.User, msg)) {
                         return;
                     }

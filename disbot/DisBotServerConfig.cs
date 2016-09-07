@@ -210,6 +210,9 @@ namespace DisBot {
 
         public virtual async Task HandleCommand(Message msg) {
             string cmdName = msg.Text.Split(' ')[0].Substring(Prefix.Length).Trim().ToLowerInvariant();
+            if (cmdName.StartsWithInvariant(Prefix)) {
+                cmdName.Substring(Prefix.Length).Trim();
+            }
             if (cmdName.Length == 0) return;
 
             await msg.Channel.SendIsTyping();
@@ -228,7 +231,8 @@ namespace DisBot {
             string aliasCmd = GetAlias(cmdName);
             if (aliasCmd != null) {
                 try {
-                    await HandleCommand(msg.Clone(Prefix + aliasCmd));
+                    int splitIndex = msg.Text.IndexOf(' ');
+                    await HandleCommand(msg.Clone(Prefix + aliasCmd + (splitIndex < 0 ? "" : msg.Text.Substring(splitIndex))));
                 } catch (Exception e) {
                     Send(msg.Channel, $"Something went horribly, horribly wrong! Consult `{Prefix}log internal`");
                     Log("internal", e.ToString());
@@ -238,7 +242,7 @@ namespace DisBot {
 
             if (!string.IsNullOrWhiteSpace(CommandNotFound)) {
                 int splitIndex = msg.Text.IndexOf(' ');
-                Send(msg.Channel, string.Format(CommandNotFound, cmdName, splitIndex < 0 || msg.Text.Length <= splitIndex ? "" : msg.Text.Substring(msg.Text.IndexOf(' '))));
+                Send(msg.Channel, string.Format(CommandNotFound, cmdName, splitIndex < 0 ? "" : msg.Text.Substring(splitIndex)));
             }
             return;
         }
