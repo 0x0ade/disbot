@@ -48,20 +48,20 @@ namespace DisBot {
 
             Dir = server != null ? server.Name + "-" + server.Id : "PM";
 
-            OnLoad["BotOverlordID"] = (s) => BotOverlordID = ulong_Parse(s) ?? BotOverlordID;
-            OnSave["BotOverlordID"] = () => BotOverlordID.ToString();
+            OnLoad["id.overlord"] = (s) => BotOverlordID = ulong_Parse(s) ?? BotOverlordID;
+            OnSave["id.overlord"] = () => BotOverlordID.ToString();
 
-            OnLoad["BotCommander"] = (s) => BotCommander = s;
-            OnSave["BotCommander"] = () => BotCommander;
+            OnLoad["role.commander"] = (s) => BotCommander = s;
+            OnSave["role.commander"] = () => BotCommander;
 
-            OnLoad["Prefix"] = (s) => Prefix = s;
-            OnSave["Prefix"] = () => Prefix;
+            OnLoad["prefix"] = (s) => Prefix = s;
+            OnSave["prefix"] = () => Prefix;
 
-            OnLoad["CommandNotFound"] = (s) => CommandNotFound = s;
-            OnSave["CommandNotFound"] = () => CommandNotFound;
+            OnLoad["cmd.notfound"] = (s) => CommandNotFound = s;
+            OnSave["cmd.notfound"] = () => CommandNotFound;
 
-            OnLoad["Aliases"] = (s) => SetAliases(s);
-            OnSave["Aliases"] = () => GetAliases();
+            OnLoad["cmd.alias"] = (s) => SetAliases(s);
+            OnSave["cmd.alias"] = () => GetAliases();
 
 
         }
@@ -171,7 +171,7 @@ namespace DisBot {
 
 
         public virtual async void MessageReceived(object sender, MessageEventArgs e) {
-            Log(e.Message.IsAuthor ? "self" : e.Message.User.IsBot ? "bot" : e.Message.Text.StartsWith(Prefix) ? "cmd" : "msg",
+            Log(e.Message.IsAuthor ? "self" : e.Message.User.IsBot ? "bot" : e.Message.Text.StartsWithInvariant(Prefix) ? "cmd" : "msg",
                 e.Channel.Name, e.User.ToString(), e.Message.Text, time: e.Message.Timestamp);
             if (e.Message.IsAuthor) return;
 
@@ -179,7 +179,7 @@ namespace DisBot {
 
             if (e.Message.User.IsBot) return;
 
-            if (e.Message.Text.StartsWith(Prefix)) {
+            if (e.Message.Text.StartsWithInvariant(Prefix)) {
                 await HandleCommand(e.Message);
             }
         }

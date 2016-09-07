@@ -92,7 +92,7 @@ namespace DisBot {
                     } else {
                         for (int i = 0; i < args.Length; i++) {
                             string cmdName = args[i];
-                            if (cmdName.StartsWith(server.Prefix)) {
+                            if (cmdName.StartsWithInvariant(server.Prefix)) {
                                 cmdName = cmdName.Substring(server.Prefix.Length);
                             }
 
@@ -199,27 +199,6 @@ namespace DisBot {
                 Info = "Alias management command.",
                 Help = "+ [alias] [cmd] <args> | - [alias] | [alias]",
                 OnRun = delegate (DisBotDCommand cmd_, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
-                    if (args.Length == 1) {
-                        string aliasName = args[0];
-                        if (aliasName.StartsWith(server.Prefix)) {
-                            aliasName = aliasName.Substring(server.Prefix.Length);
-                        }
-                        string aliasCmd = server.GetAlias(aliasName);
-                        if (aliasCmd == null) {
-                            server.Send(msg.Channel, $"Alias `{aliasName}` not found! Add a new one via `{server.Prefix}{cmd_.Name} + {aliasName} [cmd] <args>`");
-                            return;
-                        }
-
-                        StringBuilder builder = new StringBuilder();
-                        builder.Append("Alias `").Append(aliasName).AppendLine("`:");
-                        builder.AppendLine("```");
-                        builder.Append(server.Prefix).AppendLine(aliasCmd);
-                        builder.AppendLine("```");
-
-                        server.Send(msg.Channel, builder.ToString());
-                        return;
-                    }
-
                     if (args.Length == 2 && args[0] == "-") {
                         Tuple<string, string> alias = server.GetAliasTuple(args[1]);
                         if (alias == null) {
@@ -233,7 +212,7 @@ namespace DisBot {
                         return;
                     }
 
-                    if (args.Length >= 3 && (args[0] == "+" || args[0] == "add-")) {
+                    if (args.Length >= 3 && (args[0] == "+" || args[0] == "add")) {
                         DisBotCommand cmd = server.GetCommand(args[1]);
                         if (cmd != null) {
                             server.Send(msg.Channel, $"Command `{args[1]}` already existing!");
@@ -241,7 +220,7 @@ namespace DisBot {
                         }
 
                         string aliasName = args[1].String;
-                        if (aliasName.StartsWith(server.Prefix)) {
+                        if (aliasName.StartsWithInvariant(server.Prefix)) {
                             aliasName = aliasName.Substring(server.Prefix.Length);
                         }
 
@@ -256,7 +235,7 @@ namespace DisBot {
                             args[0].String.Length + 1 +
                             args[1].String.Length + 1
                         ).Trim();
-                        if (aliasCmd.StartsWith(server.Prefix)) {
+                        if (aliasCmd.StartsWithInvariant(server.Prefix)) {
                             aliasCmd = aliasCmd.Substring(server.Prefix.Length);
                         }
 
@@ -266,7 +245,40 @@ namespace DisBot {
                         return;
                     }
 
-                    Task.Run(() => server.GetCommand("help").Run(server, msg, new DisBotCommandArg(cmd_.Name)));
+                    StringBuilder builder = new StringBuilder();
+
+                    if (args.Length == 0) {
+                        builder.Append("This server has got **").Append(server.Commands.Count).Append(" aliases.**");
+                        builder.AppendLine();
+
+                        for (int i = 0; i < server.Aliases.Count; i++) {
+                            Tuple<string, string> alias = server.Aliases[i];
+                            builder.Append("Alias `").Append(alias.Item1).AppendLine("`:");
+                            builder.AppendLine("```");
+                            builder.Append(server.Prefix).AppendLine(alias.Item2);
+                            builder.AppendLine("```");
+                        }
+                        builder.AppendLine();
+                    } else {
+                        for (int i = 0; i < args.Length; i++) {
+                            string aliasName = args[i];
+                            if (aliasName.StartsWithInvariant(server.Prefix)) {
+                                aliasName = aliasName.Substring(server.Prefix.Length);
+                            }
+                            string aliasCmd = server.GetAlias(aliasName);
+                            if (aliasCmd == null) {
+                                server.Send(msg.Channel, $"Alias `{aliasName}` not found! Add a new one via `{server.Prefix}{cmd_.Name} + {aliasName} [cmd] <args>`");
+                                continue;
+                            }
+
+                            builder.Append("Alias `").Append(aliasName).AppendLine("`:");
+                            builder.AppendLine("```");
+                            builder.Append(server.Prefix).AppendLine(aliasCmd);
+                            builder.AppendLine("```");
+                        }
+                    }
+
+                    server.Send(msg.Channel, builder.ToString());
                     return;
                 }
             });
@@ -297,7 +309,7 @@ namespace DisBot {
 
                     string url, imguri;
 
-                    if (((1 <= args.Length && args.Length <= 2) && args[0].String.StartsWith("+")) || (args.Length == 2 && args[0] == "add")) {
+                    if (((1 <= args.Length && args.Length <= 2) && args[0].String.StartsWithInvariant("+")) || (args.Length == 2 && args[0] == "add")) {
                         if (msg.Attachments.Length == 0 && args.Length == 1 && args[0].String.Length == 1) {
                             server.Send(msg.Channel, "You didn't attach any image to your message!");
                             return;
@@ -658,10 +670,23 @@ namespace DisBot {
                 }
             });
 
+            Commands.Add(new DisBotDCommand() {
+                Name = "pasta",
+                Info = "Stolen from Zatherz, too. Sorry!",
+                Help = "",
+                OnRun = (cmd_, server, msg, args) => server.Send(msg.Channel,
+@"Hey Zath. I'm now quitting Discord.
+I want you to know that the Enter the Gungeon server was the first big modding job that I've done, and while I did do some bad, I'm not letting your power whoring stopping me from doing anything I deem fun.The fact that you took the community I helped run, put yourself in charge, and not put me back on staff is the best proof I can think of for the fact that you have always wanted to abuse power much more than I ever have.You could have simply taught me a lesson and put me back on staff, but you didn't.
+Like I said, I genuinely enjoyed running the community, and I didn't do the best all the time. I actually wanted to be friends with you. Most of the time, at least, while you were arguing with me about how I ran the server, I actually tried to be at least a little bit understanding on your end. Other times I said some rude things, and I take those mean words back. Anger feeding into anger doesn't get anyone anywhere, and that's exactly what I did. So I apologize for that. But you wouldn't.
+See, this is what separates me from you -I'm willing to admit my flaws. I messed up, and I admitted it. You have done wrong in the past (not what we deem wrong, but things that are generally considered wrong across the board. For example, you made fun of autism, a certain member of the community complained about the fact that he had it himself, and you continued to do it), but you won't admit your flaws.It takes guts to admit that someone does something wrong, and that's exactly what I did. Meanwhile, while we aren't arguing and I'm away, you're constantly putting yourself up on a pedestal saying that the coup went "+"\"so well\""+@", that your plan to sabotage us was practically the best thing you've ever done. If your life amounts to bringing down a small group of people just because they did some wrong for a small internet community, then you seriously need to rethink your life.
+This account will never be used again, and I genuinely don't care what you do to the community any more.  I don't care what you think about me.I don't even care if you ban me. All I know is that the community is now more toxic for the drama you helped spread (on the server and on the subreddit too) and you singlehandedly ruined it for not wanting to move on. I don't think the future is bright for the community right now, but all I can say is that I hope for the best, even with you leading it. Goodbye."
+                    )
+            });
+
             Parsers.Add(new DisBotDParser() {
                 Name = "tableunflip",
                 Info = "Your friendly tableunflipper bot.",
-                OnParse = (parser, server, msg) => msg.Text.Contains("(╯°□°）╯︵ ┻━┻") || msg.Text.StartsWith("/tableflip"),
+                OnParse = (parser, server, msg) => msg.Text.Contains("(╯°□°）╯︵ ┻━┻") || msg.Text.StartsWithInvariant("/tableflip"),
                 OnRun = (parser, server, msg) => server.Send(msg.Channel, "┬──┬◡ﾉ(° -°ﾉ)")
             });
 
@@ -733,6 +758,10 @@ namespace DisBot {
             if (Servers.ContainsKey(server.Id)) {
                 Servers.Remove(server.Id);
             }
+        }
+
+        public static bool StartsWithInvariant(this string a, string b) {
+            return a.StartsWith(b, StringComparison.InvariantCulture);
         }
 
         private readonly static object[] a_object_0 = new object[0];
