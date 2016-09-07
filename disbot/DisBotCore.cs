@@ -355,6 +355,11 @@ namespace DisBot {
                             return;
                         }
 
+                        if (GetWebStreamLength(url) > 8L * 1024L * 1024L) {
+                            server.Send(msg.Channel, "Image too large!");
+                            return;
+                        }
+
                         Task.Run(async delegate () {
                             server.Log("bot", $"Downloading {url} to {imguri}");
                             Task<Message> replyT = msg.Channel.SendMessage("Downloading image...");
@@ -774,6 +779,16 @@ This account will never be used again, and I genuinely don't care what you do to
         public static void RemoveServer(Server server) {
             if (Servers.ContainsKey(server.Id)) {
                 Servers.Remove(server.Id);
+            }
+        }
+
+        public static long GetWebStreamLength(string url) {
+            HttpWebRequest request = (HttpWebRequest) WebRequest.Create(url);
+            request.UserAgent = "disbot";
+            request.Method = "HEAD";
+
+            using (HttpWebResponse response = (HttpWebResponse) request.GetResponse()) {
+                return response.ContentLength;
             }
         }
 

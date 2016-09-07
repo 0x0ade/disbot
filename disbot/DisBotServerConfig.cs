@@ -211,7 +211,10 @@ namespace DisBot {
         public virtual async Task HandleCommand(Message msg) {
             string cmdName = msg.Text.Split(' ')[0].Substring(Prefix.Length).Trim().ToLowerInvariant();
             if (cmdName.StartsWithInvariant(Prefix)) {
-                cmdName.Substring(Prefix.Length).Trim();
+                cmdName = cmdName.Substring(Prefix.Length).Trim();
+                try {
+                    await msg.Delete();
+                } catch (Exception) { }
             }
             if (cmdName.Length == 0) return;
 
