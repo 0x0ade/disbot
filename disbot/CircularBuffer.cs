@@ -5,9 +5,9 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace DisBot {
-    public class LogBuffer {
+    public class CircularBuffer<T> {
 
-        protected string[] _buffer;
+        protected T[] _buffer;
 
         private int _position;
         public virtual int Position {
@@ -34,7 +34,7 @@ namespace DisBot {
             }
         }
 
-        public virtual string this[int i] {
+        public virtual T this[int i] {
             get {
                 return _buffer[(_position - CurrentSize + i) % _buffer.Length];
             }
@@ -43,15 +43,15 @@ namespace DisBot {
             }
         }
 
-        public LogBuffer()
+        public CircularBuffer()
             : this(32) {
         }
 
-        public LogBuffer(int size) {
-            _buffer = new string[size];
+        public CircularBuffer(int size) {
+            _buffer = new T[size];
         }
 
-        public virtual void Add(string item) {
+        public virtual void Add(T item) {
             _buffer[_position % _buffer.Length] = item;
             _position++;
         }

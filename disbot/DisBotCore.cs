@@ -2,6 +2,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Drawing.Text;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,6 +14,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using DColor = System.Drawing.Color;
 
 namespace DisBot {
     public static class DisBotCore {
@@ -36,6 +41,9 @@ namespace DisBot {
 
         public static List<DisBotCommand> Commands = new List<DisBotCommand>();
         public static List<DisBotParser> Parsers = new List<DisBotParser>();
+
+        public static Bitmap SharedBitmap = new Bitmap(1, 1);
+        public static Graphics SharedGraphics = Graphics.FromImage(SharedBitmap);
 
         public static void Main(string[] args) {
             Init();
@@ -79,6 +87,7 @@ namespace DisBot {
                             builder.Append(server.Prefix).Append(cmd.Name).AppendLine(": ");
                             builder.Append(" ").Append(cmd.Info).AppendLine();
                         }
+                        builder.AppendLine($"*(Use a command with {server.Prefix}{server.Prefix} to make your message vanish!)*");
                         builder.AppendLine();
 
                         builder.AppendLine("**Parsers:**");
@@ -297,6 +306,87 @@ namespace DisBot {
             });
 
             Commands.Add(new DisBotDCommand() {
+                Name = "log",
+                Info = "Gives you a look at what happened in this server.",
+                Help = "<tag (default: all) / list> <range (n, -n, a-b, a+n)>",
+                OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+                    if (server.Server == null) {
+                        return;
+                    }
+
+                    StringBuilder builder = new StringBuilder();
+
+                    CircularBuffer<string> buffer = args.Length == 0 ? server.LogBuffer : server.GetLogBuffer(args[0]);
+
+                    if (buffer == null) {
+                        if (args[0] == "list") {
+                            builder.AppendLine("Available tags:");
+                            goto ListTags;
+                        }
+                    }
+
+                    if (buffer == null) {
+                        builder.AppendLine($"Log with tag `{args[0]}` not found! Available tags:");
+                        goto ListTags;
+                    }
+
+                    int offset = 0;
+                    int size = int.MaxValue;
+                    if (args.Length != 0) {
+                        buffer = buffer ?? server.LogBuffer;
+                        string sizeStr = args[args.Length - 1];
+                        string[] sizeStrSplit;
+                        if (int.TryParse(sizeStr, out size)) { if (size < 0) { offset = buffer.CurrentSize + size; size = -size; } } else if ((sizeStrSplit = sizeStr.Split('+')).Length == 2 && int.TryParse(sizeStrSplit[0], out offset) && int.TryParse(sizeStrSplit[1], out size)) { } else if ((sizeStrSplit = sizeStr.Split('-')).Length == 2 && int.TryParse(sizeStrSplit[0], out offset) && int.TryParse(sizeStrSplit[1], out size)) { size -= offset; } else { size = int.MaxValue; }
+                    }
+
+                    if (buffer != null) {
+                        builder.AppendLine("```");
+                        offset = Math.Max(0, offset);
+                        size = Math.Min(buffer.CurrentSize - offset, size);
+                        for (int i = offset; i < offset + size; i++) {
+                            builder.AppendLine(buffer[i].Replace("```", "---"));
+                        }
+                        builder.AppendLine("```");
+                    }
+
+                    if (builder.Length > DiscordConfig.MaxMessageSize) {
+                        server.Send(msg.Channel, "The log is quite big. Sending it to you via PM.");
+
+                        Task.Run(async delegate () {
+                            Task<Channel> channelT = msg.User.CreatePMChannel();
+                            List<string> texts = new List<string>();
+                            string text = builder.ToString();
+                            while (text.Length > DiscordConfig.MaxMessageSize) {
+                                int lastnl = text.LastIndexOf("\n", DiscordConfig.MaxMessageSize, DiscordConfig.MaxMessageSize);
+                                if (lastnl < 0) lastnl = DiscordConfig.MaxMessageSize;
+                                texts.Add(text.Substring(0, lastnl));
+                                text = text.Substring(lastnl);
+                            }
+                            texts.Add(text);
+                            Channel channel = await channelT;
+                            for (int i = 0; i < texts.Count; i++) {
+                                text = texts[i];
+                                if (i != 0) text = "```\n" + text;
+                                if (i != texts.Count - 1) text = text + "\n```";
+                                server.Send(channel, text);
+                            }
+                        });
+                        return;
+                    }
+                    server.Send(msg.Channel, builder.ToString());
+                    return;
+
+                    ListTags:
+                    builder.AppendLine($" `all`");
+                    foreach (string tag in server.LogTags) {
+                        builder.AppendLine($" `{tag}`");
+                    }
+                    server.Send(msg.Channel, builder.ToString());
+                    return;
+                }
+            });
+
+            Commands.Add(new DisBotDCommand() {
                 Name = "echo",
                 Info = "Repeats what you said.",
                 Help = "[anything]",
@@ -320,6 +410,37 @@ namespace DisBot {
                     }
 
                     string url, imguri;
+
+                    if (args.Length == 2) {
+                        if (args[0] == "++") {
+                            if (!server.IsBotCommander(msg.User, msg)) {
+                                return;
+                            }
+                            if (!server.ImageBlacklist.Contains(args[1])) {
+                                server.Send(msg.Channel, $"`{args[1]}` not in blacklist.");
+                                return;
+                            }
+
+                            server.ImageBlacklist.Remove(args[1]);
+                            server.Save();
+                            server.Send(msg.Channel, $"Removed `{args[1]}` from blacklist.");
+                            return;
+                        }
+                        if (args[0] == "--") {
+                            if (!server.IsBotCommander(msg.User, msg)) {
+                                return;
+                            }
+                            if (server.ImageBlacklist.Contains(args[1])) {
+                                server.Send(msg.Channel, $"`{args[1]}` already in blacklist.");
+                                return;
+                            }
+
+                            server.ImageBlacklist.Add(args[1]);
+                            server.Save();
+                            server.Send(msg.Channel, $"Added `{args[1]}` to blacklist.");
+                            return;
+                        }
+                    }
 
                     if (((1 <= args.Length && args.Length <= 2) && args[0].String.StartsWithInvariant("+")) || (args.Length == 2 && args[0] == "add")) {
                         if (msg.Attachments.Length == 0 && args.Length == 1 && args[0].String.Length == 1) {
@@ -355,8 +476,13 @@ namespace DisBot {
                             return;
                         }
 
-                        if (GetWebStreamLength(url) > 8L * 1024L * 1024L) {
+                        if (GetWebStreamLength(url) > 3L * 1024L * 1024L) {
                             server.Send(msg.Channel, "Image too large!");
+                            return;
+                        }
+
+                        if (server.IsImageBlacklisted(url)) {
+                            server.Send(msg.Channel, "Image blacklisted!");
                             return;
                         }
 
@@ -466,6 +592,13 @@ namespace DisBot {
                             return;
                         }
 
+                        if (server.IsImageBlacklisted(to)) {
+                            server.Send(msg.Channel, "Image blacklisted!");
+                            File.Delete(server.LastImage);
+                            server.RefreshImageCache();
+                            return;
+                        }
+
                         File.Move(server.LastImage, to);
                         server.RefreshImageCache();
                         server.LastImage = to;
@@ -507,6 +640,13 @@ namespace DisBot {
                             return;
                         }
 
+                        if (server.IsImageBlacklisted(to)) {
+                            server.Send(msg.Channel, "Image blacklisted!");
+                            File.Delete(from);
+                            server.RefreshImageCache();
+                            return;
+                        }
+
                         File.Move(from, to);
                         server.RefreshImageCache();
                         server.LastImage = to;
@@ -524,6 +664,21 @@ namespace DisBot {
 
                         builder.AppendLine();
                         builder.AppendLine($"Use `{server.Prefix}img` for a random image or `{server.Prefix}img QUERY` to search for a specific image.");
+
+                        server.Send(msg.Channel, builder.ToString());
+                        return;
+                    }
+
+                    if (args.Length == 1 && args[0] == "blacklist") {
+                        StringBuilder builder = new StringBuilder();
+                        builder.AppendLine("Following images blacklisted for this server:");
+
+                        for (int i = 0; i < server.ImageBlacklist.Count; i++) {
+                            builder.Append(" ").AppendLine(server.ImageBlacklist[i].Replace('_', ' '));
+                        }
+
+                        builder.AppendLine();
+                        builder.AppendLine($"Use `{server.Prefix}img -- [img]` to blacklist and `{server.Prefix}img ++ [img]` to unblock an image.");
 
                         server.Send(msg.Channel, builder.ToString());
                         return;
@@ -607,89 +762,6 @@ namespace DisBot {
             });
 
             Commands.Add(new DisBotDCommand() {
-                Name = "log",
-                Info = "Gives you a look at what happened in this server.",
-                Help = "<tag (default: all) / list> <range (n, -n, a-b, a+n)>",
-                OnRun = delegate (DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
-                    if (server.Server == null) {
-                        return;
-                    }
-
-                    StringBuilder builder = new StringBuilder();
-
-                    LogBuffer buffer = args.Length == 0 ? server.LogBuffer : server.GetLogBuffer(args[0]);
-
-                    if (buffer == null) {
-                        // Try filter and size first
-                        // TODO
-                        if (args[0] == "list") {
-                            builder.AppendLine("Available tags:");
-                            goto ListTags;
-                        }
-                    }
-
-                    if (buffer == null) {
-                        builder.AppendLine($"Log with tag `{args[0]}` not found! Available tags:");
-                        goto ListTags;
-                    }
-
-                    int offset = 0;
-                    int size = int.MaxValue;
-                    if (args.Length != 0) {
-                        buffer = buffer ?? server.LogBuffer;
-                        string sizeStr = args[args.Length - 1];
-                        string[] sizeStrSplit;
-                        if (int.TryParse(sizeStr, out size)) { if (size < 0) { offset = buffer.CurrentSize + size; size = -size; } } else if ((sizeStrSplit = sizeStr.Split('+')).Length == 2 && int.TryParse(sizeStrSplit[0], out offset) && int.TryParse(sizeStrSplit[1], out size)) { } else if ((sizeStrSplit = sizeStr.Split('-')).Length == 2 && int.TryParse(sizeStrSplit[0], out offset) && int.TryParse(sizeStrSplit[1], out size)) { size -= offset; } else { size = int.MaxValue; }
-                    }
-
-                    if (buffer != null) {
-                        builder.AppendLine("```");
-                        offset = Math.Max(0, offset);
-                        size = Math.Min(buffer.CurrentSize - offset, size);
-                        for (int i = offset; i < offset + size; i++) {
-                            builder.AppendLine(buffer[i].Replace("```", "---"));
-                        }
-                        builder.AppendLine("```");
-                    }
-
-                    if (builder.Length > DiscordConfig.MaxMessageSize) {
-                        server.Send(msg.Channel, "The log is quite big. Sending it to you via PM.");
-
-                        Task.Run(async delegate () {
-                            Task<Channel> channelT = msg.User.CreatePMChannel();
-                            List<string> texts = new List<string>();
-                            string text = builder.ToString();
-                            while (text.Length > DiscordConfig.MaxMessageSize) {
-                                int lastnl = text.LastIndexOf("\n", DiscordConfig.MaxMessageSize, DiscordConfig.MaxMessageSize);
-                                if (lastnl < 0) lastnl = DiscordConfig.MaxMessageSize;
-                                texts.Add(text.Substring(0, lastnl));
-                                text = text.Substring(lastnl);
-                            }
-                            texts.Add(text);
-                            Channel channel = await channelT;
-                            for (int i = 0; i < texts.Count; i++) {
-                                text = texts[i];
-                                if (i != 0) text = "```\n" + text;
-                                if (i != texts.Count - 1) text = text + "\n```";
-                                server.Send(channel, text);
-                            }
-                        });
-                        return;
-                    }
-                    server.Send(msg.Channel, builder.ToString());
-                    return;
-
-                    ListTags:
-                    builder.AppendLine($" `all`");
-                    foreach (string tag in server.LogTags) {
-                        builder.AppendLine($" `{tag}`");
-                    }
-                    server.Send(msg.Channel, builder.ToString());
-                    return;
-                }
-            });
-
-            Commands.Add(new DisBotDCommand() {
                 Name = "pasta",
                 Info = "Stolen from Zatherz, too. Sorry!",
                 Help = "",
@@ -745,6 +817,9 @@ This account will never be used again, and I genuinely don't care what you do to
                     server.Send(msg.Channel, $"Prefix set to `{prefix}`.");
                 }
             });
+
+            // TODO
+            new DisBotQImgModule().Init();
         }
 
         public static Task Start() {
@@ -761,6 +836,60 @@ This account will never be used again, and I genuinely don't care what you do to
             await Task.Run(() => GetServer(e.Server, true).MessageReceived(sender, e));
         }
 
+
+        public static async Task<Image> GetAvatarRound(User user, int size = 40) {
+            Bitmap img = new Bitmap(size, size);
+            Rectangle bounds = new Rectangle(0, 0, size, size);
+
+            using (Graphics g = Graphics.FromImage(img)) {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                using (Image avatar = await GetAvatar(user)) {
+                    g.DrawImage(avatar, bounds, 0, 0, avatar.Width, avatar.Height, GraphicsUnit.Pixel);
+                }
+            }
+
+            using (Bitmap mask = new Bitmap(size, size)) {
+                using (Graphics g = Graphics.FromImage(mask))
+                using (SolidBrush brush = new SolidBrush(DColor.White))
+                using (GraphicsPath ellipse = new GraphicsPath()) {
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    ellipse.AddEllipse(0, 0, size - 1, size - 1);
+                    g.FillPath(brush, ellipse);
+                }
+                
+                BitmapData imgData = img.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                BitmapData maskData = mask.LockBits(bounds, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+                unsafe {
+                    byte* imgP = (byte*) imgData.Scan0.ToPointer();
+                    byte* maskP = (byte*) maskData.Scan0.ToPointer();
+                    imgP += 3; // a
+                    maskP += 3; // a
+                    for (int i = size * size; i > 0; i--) {
+                        *imgP = *maskP;
+                        imgP += 4;
+                        maskP += 4;
+                    }
+                }
+                img.UnlockBits(imgData);
+                mask.UnlockBits(maskData);
+            }
+
+            return img;
+        }
+
+        public static async Task<Image> GetAvatar(User user) {
+            return await Task.Run(delegate () {
+                using (WebClient wc = new WebClient()) {
+                    using (Stream s = wc.OpenRead(user.AvatarUrl)) {
+                        return Image.FromStream(s);
+                    }
+                }
+            });
+        }
+
+
         public static string DateString(this DateTime time) {
             if (time == default(DateTime)) time = DateTime.UtcNow;
             return time.ToString("yyyy-MM-dd HH:mm:ss");
@@ -775,7 +904,6 @@ This account will never be used again, and I genuinely don't care what you do to
             }
             return config;
         }
-
         public static void RemoveServer(Server server) {
             if (Servers.ContainsKey(server.Id)) {
                 Servers.Remove(server.Id);
@@ -794,6 +922,14 @@ This account will never be used again, and I genuinely don't care what you do to
 
         public static bool StartsWithInvariant(this string a, string b) {
             return a.StartsWith(b, StringComparison.InvariantCulture);
+        }
+
+        public static Stream ToStream(this Image img, ImageFormat format = null) {
+            format = format ?? ImageFormat.Png;
+            MemoryStream ms = new MemoryStream();
+            img.Save(ms, format);
+            ms.Position = 0;
+            return ms;
         }
 
         private readonly static object[] a_object_0 = new object[0];

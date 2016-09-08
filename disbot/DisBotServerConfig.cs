@@ -10,11 +10,11 @@ using System.Threading.Tasks;
 namespace DisBot {
     public class DisBotServerConfig {
 
-        public const string ALIAS_SPLIT = "###;###";
-        public readonly static string[] ALIAS_SPLIT_A = new string[] { ALIAS_SPLIT };
-        public const string ALIAS_SEPARATE = "###;;###";
-        public readonly static string[] ALIAS_SEPARATE_A = new string[] { ALIAS_SEPARATE };
-        public const string ALIAS_NEWLINE = "###\n###";
+        public const string CONF_SPLIT = "###;###";
+        public readonly static string[] CONF_SPLIT_A = new string[] { CONF_SPLIT };
+        public const string CONF_SEPARATE = "###;;###";
+        public readonly static string[] CONF_SEPARATE_A = new string[] { CONF_SEPARATE };
+        public const string CONF_NEWLINE = "###\n###";
 
         public Server Server;
 
@@ -25,19 +25,22 @@ namespace DisBot {
         public string ConfigFile = "config.txt";
         public string ImageDir = "images";
 
-        public string BotCommander = "Bot Commander";
-        public ulong BotOverlordID = 93713629047697408UL;
+        public ulong OverlordID = 93713629047697408UL;
+        public string RoleCommander = "Bot Commander";
+        public string RoleBlacklist = "Bot Blacklist";
 
         public string CommandNotFound = "Command not found: `{0}`";
 
-        public LogBuffer LogBuffer = new LogBuffer();
-        protected Dictionary<string, LogBuffer> _taggedLogBuffers = new Dictionary<string, LogBuffer>();
+        public CircularBuffer<Message> MessageBuffer = new CircularBuffer<Message>();
+        public CircularBuffer<string> LogBuffer = new CircularBuffer<string>();
+        protected Dictionary<string, CircularBuffer<string>> _taggedLogBuffers = new Dictionary<string, CircularBuffer<string>>();
 
         public List<DisBotCommand> Commands = new List<DisBotCommand>();
         public List<Tuple<string, string>> Aliases = new List<Tuple<string, string>>();
         public List<DisBotParser> Parsers = new List<DisBotParser>();
 
         public List<string> Images = new List<string>();
+        public List<string> ImageBlacklist = new List<string>();
         public string LastImage;
 
         public Dictionary<string, Action<string>> OnLoad = new Dictionary<string, Action<string>>();
@@ -48,11 +51,11 @@ namespace DisBot {
 
             Dir = server != null ? server.Name + "-" + server.Id : "PM";
 
-            OnLoad["id.overlord"] = (s) => BotOverlordID = ulong_Parse(s) ?? BotOverlordID;
-            OnSave["id.overlord"] = () => BotOverlordID.ToString();
+            OnLoad["role.commander"] = (s) => RoleCommander = s;
+            OnSave["role.commander"] = () => RoleCommander;
 
-            OnLoad["role.commander"] = (s) => BotCommander = s;
-            OnSave["role.commander"] = () => BotCommander;
+            OnLoad["role.blacklist"] = (s) => RoleBlacklist = s;
+            OnSave["role.blacklist"] = () => RoleBlacklist;
 
             OnLoad["prefix"] = (s) => Prefix = s;
             OnSave["prefix"] = () => Prefix;
@@ -63,6 +66,8 @@ namespace DisBot {
             OnLoad["cmd.alias"] = (s) => SetAliases(s);
             OnSave["cmd.alias"] = () => GetAliases();
 
+            OnLoad["blacklist.img"] = (s) => SetList(ImageBlacklist, s);
+            OnSave["blacklist.img"] = () => GetList(ImageBlacklist);
 
         }
 
@@ -131,10 +136,10 @@ namespace DisBot {
         public void SetAliases(string aliasdata) {
             Aliases.Clear();
             try {
-                string[] aliaslines = aliasdata.Split(ALIAS_SEPARATE_A, StringSplitOptions.None);
+                string[] aliaslines = aliasdata.Split(CONF_SEPARATE_A, StringSplitOptions.None);
                 for (int i = 0; i < aliaslines.Length; i++) {
                     string aliasline = aliaslines[i];
-                    string[] split = aliasline.Split(ALIAS_SPLIT_A, StringSplitOptions.None);
+                    string[] split = aliasline.Split(CONF_SPLIT_A, StringSplitOptions.None);
                     string name = split[0].Trim();
                     string cmd = split[1].Trim();
                     Aliases.Add(Tuple.Create(name, cmd));
@@ -149,10 +154,35 @@ namespace DisBot {
                 string name = alias.Item1;
                 string cmd = alias.Item2;
 
-                sb.Append(name).Append(ALIAS_SPLIT).Append(cmd.Replace("\n", ALIAS_NEWLINE));
+                sb.Append(name).Append(CONF_SPLIT).Append(cmd.Replace("\n", CONF_NEWLINE));
 
                 if (i < Aliases.Count - 1) {
-                    sb.Append(ALIAS_SEPARATE);
+                    sb.Append(CONF_SEPARATE);
+                }
+            }
+            return sb.ToString();
+        }
+        public void SetList<T>(List<T> list, string data) {
+            Type t = typeof(T);
+            list.Clear();
+            try {
+                string[] items = data.Split(CONF_SEPARATE_A, StringSplitOptions.None);
+                for (int i = 0; i < items.Length; i++) {
+                    string item = items[i];
+                    list.Add((T) Convert.ChangeType(item, t));
+                }
+            } catch (Exception) {
+            }
+        }
+        public string GetList<T>(List<T> list) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < list.Count; i++) {
+                T item = list[i];
+
+                sb.Append((item as string ?? item.ToString()).Replace("\n", CONF_NEWLINE));
+
+                if (i < Aliases.Count - 1) {
+                    sb.Append(CONF_SEPARATE);
                 }
             }
             return sb.ToString();
@@ -168,9 +198,19 @@ namespace DisBot {
             query = query.Replace(' ', '_').ToLowerInvariant();
             return Images.Where((string img) => Path.GetFileName(img).ToLowerInvariant().Contains(query)).ToList();
         }
-
+        public bool IsImageBlacklisted(string img) {
+            img = img.ToLowerInvariant();
+            for (int i = 0; i < ImageBlacklist.Count; i++) {
+                string black = ImageBlacklist[i].ToLowerInvariant();
+                if (img.Contains(black)) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         public virtual async void MessageReceived(object sender, MessageEventArgs e) {
+            MessageBuffer.Add(e.Message);
             Log(e.Message.IsAuthor ? "self" : e.Message.User.IsBot ? "bot" : e.Message.Text.StartsWithInvariant(Prefix) ? "cmd" : "msg",
                 e.Channel.Name, e.User.ToString(), e.Message.Text, time: e.Message.Timestamp);
             if (e.Message.IsAuthor) return;
@@ -219,6 +259,10 @@ namespace DisBot {
             if (cmdName.Length == 0) return;
 
             await msg.Channel.SendIsTyping();
+
+            if (IsBlacklisted(msg.User, msg)) {
+                return;
+            }
 
             DisBotCommand cmd = GetCommand(cmdName);
             if (cmd != null) {
@@ -313,27 +357,41 @@ namespace DisBot {
             } catch (IOException) { /* Disk IO. */ }
         }
 
-        public LogBuffer GetLogBuffer(string tag, bool create = false) {
+        public CircularBuffer<string> GetLogBuffer(string tag, bool create = false) {
             if (tag == "all") return LogBuffer;
 
-            LogBuffer buffer;
+            CircularBuffer<string> buffer;
             if (!_taggedLogBuffers.TryGetValue(tag, out buffer) && create) {
-                _taggedLogBuffers[tag] = buffer = new LogBuffer();
+                _taggedLogBuffers[tag] = buffer = new CircularBuffer<string>();
             }
             return buffer;
         }
-        public Dictionary<string, LogBuffer>.KeyCollection LogTags {
+        public Dictionary<string, CircularBuffer<string>>.KeyCollection LogTags {
             get {
                 return _taggedLogBuffers.Keys;
             }
         }
 
+        public virtual bool IsBlacklisted(User user, Message msg = null) {
+            if (user.Id == OverlordID) {
+                return false;
+            }
+            foreach (Role role in user.Roles) {
+                if (role.Name == RoleBlacklist) {
+                    if (msg != null) {
+                        Send(msg.Channel, "You're on the bot blacklist!");
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
         public virtual bool IsBotCommander(User user, Message msg = null) {
-            if (user.Id == BotOverlordID) {
+            if (user.Id == OverlordID) {
                 return true;
             }
             foreach (Role role in user.Roles) {
-                if (role.Name == BotCommander || role.Name == "Bot Commander") {
+                if (role.Name == RoleCommander || role.Name == "Bot Commander") {
                     return true;
                 }
             }
