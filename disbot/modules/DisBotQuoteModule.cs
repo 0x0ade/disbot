@@ -19,18 +19,37 @@ using DColor = System.Drawing.Color;
 namespace DisBot {
     public class DisBotQImgModule {
 
-        public static Font Medium16 = new Font("Whitney Medium", 13);
-        public static Font Medium10 = new Font("Whitney Semibold", 8);
-        public static Font Medium12 = new Font("Whitney Medium", 10);
-        public static Font Medium15 = new Font("Whitney Medium", 12);
+        public static Font Medium16;
+        public static Font Medium10;
+        public static Font Medium12;
+        public static Font Medium15;
 
-        public static Brush BgBrush = new SolidBrush(DColor.FromArgb(unchecked((int) 0xFF36393E)));
-        public static Brush BotBgBrush = new SolidBrush(DColor.FromArgb(114, 137, 218));
-        public static Brush BotFgBrush = new SolidBrush(DColor.White);
-        public static Brush FakeBgBrush = new SolidBrush(DColor.FromArgb(218, 137, 114));
-        public static Brush FakeFgBrush = new SolidBrush(DColor.White);
-        public static Brush DateBrush = new SolidBrush(DColor.FromArgb(51, 255, 255, 255));
-        public static Brush TextBrush = new SolidBrush(DColor.FromArgb(179, 255, 255, 255));
+        public static Brush BgBrush;
+        public static Brush BotBgBrush;
+        public static Brush BotFgBrush;
+        public static Brush FakeBgBrush;
+        public static Brush FakeFgBrush;
+        public static Brush DateBrush;
+        public static Brush TextBrush;
+
+        static DisBotQImgModule() {
+            try {
+                DisBotCore.CheckGDI();
+
+                Medium16 = new Font("Whitney Medium", 13);
+                Medium10 = new Font("Whitney Semibold", 8);
+                Medium12 = new Font("Whitney Medium", 10);
+                Medium15 = new Font("Whitney Medium", 12);
+
+                BgBrush = new SolidBrush(DColor.FromArgb(unchecked((int) 0xFF36393E)));
+                BotBgBrush = new SolidBrush(DColor.FromArgb(114, 137, 218));
+                BotFgBrush = new SolidBrush(DColor.White);
+                FakeBgBrush = new SolidBrush(DColor.FromArgb(218, 137, 114));
+                FakeFgBrush = new SolidBrush(DColor.White);
+                DateBrush = new SolidBrush(DColor.FromArgb(51, 255, 255, 255));
+                TextBrush = new SolidBrush(DColor.FromArgb(179, 255, 255, 255));
+            } catch (Exception) { /* GDI unsupported. */ }
+        }
 
         public void Init() {
             DisBotCore.Commands.Add(new DisBotDCommand() {
@@ -49,6 +68,15 @@ namespace DisBot {
         }
 
         public async void RunQImg(DisBotDCommand cmd, DisBotServerConfig server, Message msg, DisBotCommandArg[] args) {
+            if (server.Server == null) {
+                return;
+            }
+
+            if (DisBotCore.SharedBitmap == null) {
+                server.Send(msg.Channel, "Sorry, but the current disbot host doesn't support GDI, required for qimg!");
+                return;
+            }
+
             Message qmsg = msg;
             User user;
             string text;
@@ -76,12 +104,12 @@ namespace DisBot {
 
                 user = msg.MentionedUsers.FirstOrDefault();
                 if (user == null) {
-                    server.Send(msg.Channel, $"Stop abusing disbot. Ping those you want to message.");
+                    server.Send(msg.Channel, $"Stop abusing disbot. Ping those you want to create a message for.");
                     return;
                 }
                 string userTag = "@" + (user.Nickname ?? user.Name);
                 if (!text.StartsWithInvariant(userTag)) {
-                    server.Send(msg.Channel, $"Stop abusing disbot. Ping those you want to message.");
+                    server.Send(msg.Channel, $"Stop abusing disbot. Ping those you want to create a message for.");
                     return;
                 }
 
@@ -114,7 +142,7 @@ namespace DisBot {
                 }
             }
 
-            SizeF textSize = DisBotCore.SharedGraphics.MeasureString(text, Medium15);
+            SizeF textSize = DisBotCore.SharedGraphics.MeasureString(text, Medium15, 600);
             SizeF nickSize = DisBotCore.SharedGraphics.MeasureString(nick, Medium16);
 
             Bitmap img = new Bitmap(
@@ -141,23 +169,23 @@ namespace DisBot {
                 using (Brush userBrush = new SolidBrush(DColor.FromArgb((int) color)))
                     g.DrawString(nick, Medium16, userBrush, nickX, y);
 
-                int dateX = nickX + (int) g.MeasureString(nick, Medium16).Width + 1;
+                int dateX = nickX + (int) g.MeasureString(nick, Medium16).Width + 1 + (DisBotCore.IsMono ? 5 : 0);
                 if (user.IsBot) {
-                    g.FillRoundRectangle(BotBgBrush, dateX, y + 3, 25, 17, 3);
-                    g.DrawString("BOT", Medium10, BotFgBrush, dateX + 1, y + 5);
+                    g.FillRoundRectangle(BotBgBrush, dateX, y + 3 + (DisBotCore.IsMono ? 2 : 0), 25 + (DisBotCore.IsMono ? -1 : 0), 17 + (DisBotCore.IsMono ? -4 : 0), 3);
+                    g.DrawString("BOT", Medium10, BotFgBrush, dateX + 1, y + 5 + (DisBotCore.IsMono ? -1 : 0));
                     dateX += 24 + 5;
                 }
                 if (fake) {
-                    g.FillRoundRectangle(FakeBgBrush, dateX, y + 3, 31, 17, 3);
-                    g.DrawString("FAKE", Medium10, FakeFgBrush, dateX + 1, y + 5);
+                    g.FillRoundRectangle(FakeBgBrush, dateX, y + 3 + (DisBotCore.IsMono ? 2 : 0), 31 + (DisBotCore.IsMono ? -1 : 0), 17 + (DisBotCore.IsMono ? -4 : 0), 3);
+                    g.DrawString("FAKE", Medium10, FakeFgBrush, dateX + 1, y + 5 + (DisBotCore.IsMono ? -1 : 0));
                     dateX += 31 + 5;
                 }
 
-                g.DrawString("Somewhen in the past", Medium12, DateBrush, dateX + 1, y + 5);
+                g.DrawString("Somewhen in the past", Medium12, DateBrush, dateX + 1, y + 5 + (DisBotCore.IsMono ? -2 : 0));
 
                 y += 24;
 
-                g.DrawString(text, Medium15, TextBrush, x, y);
+                g.DrawString(text, Medium15, TextBrush, new RectangleF(x, y, img.Width - x, img.Height - y));
             }
 
             return img;

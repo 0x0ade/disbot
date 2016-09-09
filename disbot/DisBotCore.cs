@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -10,8 +11,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using DColor = System.Drawing.Color;
@@ -26,6 +29,78 @@ namespace DisBot {
             using (WebClient wc = new WebClient()) {
                 return wc.DownloadString("http://ipinfo.io/ip").Trim();
             }
+        });
+        public static readonly Lazy<string> Hostname = new Lazy<string>(delegate () {
+            string hostname = Dns.GetHostName();
+            if (hostname != "localhost") {
+                return hostname;
+            }
+            return Environment.MachineName;
+        });
+        public static readonly Lazy<string> OS = new Lazy<string>(delegate () {
+            if (Environment.OSVersion.Platform != PlatformID.Unix) {
+                return Environment.OSVersion.ToString();
+            }
+
+            StringBuilder data = new StringBuilder();
+            Process p;
+
+            p = new Process();
+            p.StartInfo.FileName = "which";
+            p.StartInfo.Arguments = "lsb_release";
+            p.StartInfo.CreateNoWindow = true;
+            p.StartInfo.RedirectStandardOutput = true;
+            p.StartInfo.RedirectStandardInput = true;
+            p.StartInfo.UseShellExecute = false;
+            p.EnableRaisingEvents = true;
+            
+            p.OutputDataReceived += new DataReceivedEventHandler(
+                delegate (object sender, DataReceivedEventArgs e) {
+                    data.AppendLine(e.Data);
+                }
+            );
+            p.Start();
+            p.BeginOutputReadLine();
+            p.StandardInput.WriteLine();
+            p.WaitForExit();
+            p.CancelOutputRead();
+
+            if (data.Length == 0) {
+                return Environment.OSVersion.ToString();
+            }
+
+
+
+            p = new Process();
+            p.StartInfo.FileName = "lsb_release";
+            p.StartInfo.Arguments = "-a";
+            p.StartInfo.CreateNoWindow = true;
+            p.StartInfo.RedirectStandardOutput = true;
+            p.StartInfo.RedirectStandardInput = true;
+            p.StartInfo.UseShellExecute = false;
+            p.EnableRaisingEvents = true;
+            data.Clear();
+            p.OutputDataReceived += new DataReceivedEventHandler(
+                delegate (object sender, DataReceivedEventArgs e) {
+                    data.AppendLine(e.Data);
+                }
+            );
+            p.Start();
+            p.BeginOutputReadLine();
+            p.StandardInput.WriteLine();
+            p.WaitForExit();
+            p.CancelOutputRead();
+
+            string desc = data.ToString();
+            desc = desc.Substring(desc.IndexOf("Description")).Trim();
+            desc = desc.Substring(desc.IndexOf(':') + 1).Trim();
+            desc = desc.Substring(0, desc.IndexOf('\n')).Trim();
+
+            data.Clear();
+            data.Append(desc);
+            data.Append(" (Linux ").Append(Environment.OSVersion.Version).Append(")");
+
+            return data.ToString();
         });
 
         private static DiscordClient Client;
@@ -42,10 +117,44 @@ namespace DisBot {
         public static List<DisBotCommand> Commands = new List<DisBotCommand>();
         public static List<DisBotParser> Parsers = new List<DisBotParser>();
 
-        public static Bitmap SharedBitmap = new Bitmap(1, 1);
-        public static Graphics SharedGraphics = Graphics.FromImage(SharedBitmap);
+        public static Bitmap SharedBitmap;
+        public static Graphics SharedGraphics;
+
+        public static bool IsMono {
+            get {
+                return Type.GetType("Mono.Runtime") != null;
+            }
+        }
+
+        static DisBotCore() {
+            try {
+                CheckGDI();
+
+                SharedBitmap = new Bitmap(1, 1);
+                SharedGraphics = Graphics.FromImage(SharedBitmap);
+            } catch (Exception) { /* GDI unsupported. */ }
+        }
 
         public static void Main(string[] args) {
+            if (args.Length == 1 && args[0] == "ouya") {
+                ServicePointManager.ServerCertificateValidationCallback = delegate (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors) {
+                    if (sslPolicyErrors != SslPolicyErrors.None) {
+                        for (int i = 0; i < chain.ChainStatus.Length; i++) {
+                            if (chain.ChainStatus[i].Status != X509ChainStatusFlags.RevocationStatusUnknown) {
+                                chain.ChainPolicy.RevocationFlag = X509RevocationFlag.EntireChain;
+                                chain.ChainPolicy.RevocationMode = X509RevocationMode.Online;
+                                chain.ChainPolicy.UrlRetrievalTimeout = new TimeSpan(0, 1, 0);
+                                chain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllFlags;
+                                if (!chain.Build((X509Certificate2) certificate)) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                };
+            }
+
             Init();
             Run();
         }
@@ -131,9 +240,15 @@ namespace DisBot {
                     StringBuilder builder = new StringBuilder();
                     builder.Append("**disbot ").Append(Version.Value.ToString()).AppendLine("** by 0x0ade.");
                     builder
-                        .Append("Running on *").Append(Environment.OSVersion)
-                        .Append("* @ `").Append(Dns.GetHostName())
+                        .Append("Running on *").Append(OS.Value)
+                        .Append("* @ `").Append(Hostname.Value)
                         .Append(" (").Append(PublicIP.Value).AppendLine(")`");
+
+                    if (IsMono) {
+                        builder.AppendLine("Using *Mono.*");
+                    } else {
+                        builder.AppendLine("Using *.NET Framework.*");
+                    }
 
                     builder.AppendLine();
                     builder.Append("disbot is being used on **").Append(Servers.Count).AppendLine("** servers!");
@@ -837,6 +952,7 @@ This account will never be used again, and I genuinely don't care what you do to
         }
 
 
+        private readonly static DColor _roundAvatarBG = DColor.FromArgb(unchecked((int) 0xFF36393E));
         public static async Task<Image> GetAvatarRound(User user, int size = 40) {
             Bitmap img = new Bitmap(size, size);
             Rectangle bounds = new Rectangle(0, 0, size, size);
@@ -858,22 +974,47 @@ This account will never be used again, and I genuinely don't care what you do to
                     ellipse.AddEllipse(0, 0, size - 1, size - 1);
                     g.FillPath(brush, ellipse);
                 }
-                
-                BitmapData imgData = img.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                BitmapData maskData = mask.LockBits(bounds, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
-                unsafe {
-                    byte* imgP = (byte*) imgData.Scan0.ToPointer();
-                    byte* maskP = (byte*) maskData.Scan0.ToPointer();
-                    imgP += 3; // a
-                    maskP += 3; // a
-                    for (int i = size * size; i > 0; i--) {
-                        *imgP = *maskP;
-                        imgP += 4;
-                        maskP += 4;
+
+                if (!IsMono) {
+                    BitmapData imgData = img.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                    BitmapData maskData = mask.LockBits(bounds, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+                    unsafe
+                    {
+                        byte* imgP = (byte*) imgData.Scan0.ToPointer();
+                        byte* maskP = (byte*) maskData.Scan0.ToPointer();
+                        imgP += 3; // a
+                        maskP += 3; // a
+                        for (int i = size * size; i > 0; i--) {
+                            *imgP = *maskP;
+                            imgP += 4;
+                            maskP += 4;
+                        }
+                    }
+                    img.UnlockBits(imgData);
+                    mask.UnlockBits(maskData);
+
+                } else {
+                    for (int y = 0; y < size; y++) {
+                        for (int x = 0; x < size; x++) {
+                            byte a = mask.GetPixel(x, y).A;
+                            float f = a / 255f;
+                            float ff = 1f - f;
+
+                            if (f < 0.1f) {
+                                img.SetPixel(x, y, _roundAvatarBG);
+                                continue;
+                            }
+
+                            DColor cA = img.GetPixel(x, y);
+                            DColor cB = _roundAvatarBG;
+                            float r = cA.R * f + cB.R * ff;
+                            float g = cA.G * f + cB.G * ff;
+                            float b = cA.B * f + cB.B * ff;
+
+                            img.SetPixel(x, y, DColor.FromArgb(a, (byte) r, (byte) g, (byte) b));
+                        }
                     }
                 }
-                img.UnlockBits(imgData);
-                mask.UnlockBits(maskData);
             }
 
             return img;
@@ -930,6 +1071,10 @@ This account will never be used again, and I genuinely don't care what you do to
             img.Save(ms, format);
             ms.Position = 0;
             return ms;
+        }
+
+        public static void CheckGDI() {
+            // throw new Exception("GDI not supported.");
         }
 
         private readonly static object[] a_object_0 = new object[0];
