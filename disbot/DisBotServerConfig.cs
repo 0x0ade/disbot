@@ -169,6 +169,7 @@ namespace DisBot {
                 string[] items = data.Split(CONF_SEPARATE_A, StringSplitOptions.None);
                 for (int i = 0; i < items.Length; i++) {
                     string item = items[i];
+                    if (item.Trim().Length == 0) continue;
                     list.Add((T) Convert.ChangeType(item, t));
                 }
             } catch (Exception) {
