@@ -357,7 +357,7 @@ namespace DisBot {
                         await msg.Channel.SendFile("qimg.png", s);
                         server.Log("internal", "Uploaded.");
                     } catch (Exception e) {
-                        server.Send(msg.Channel, "Disbot can't send the quote image! Consult `{server.Prefix}log internal`");
+                        server.Send(msg.Channel, $"Disbot can't send the quote image! Consult `{server.Prefix}log internal`");
                         server.Log("internal", e.ToString());
                     }
                 }
