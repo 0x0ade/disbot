@@ -62,8 +62,7 @@ namespace DisBot {
             RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.ECMAScript
         );
 
-        public char EmojiSubstitute = ' ';
-        public string EmojiSubstituteString = " ";
+        public string EmojiSubstitute = "   ";
 
         public override void Init() {
             try {
@@ -368,7 +367,7 @@ namespace DisBot {
             const int maxWidth = 800;
 
             string nick = user.Nickname ?? user.Name;
-            nick = EmojiRegex.Replace(nick, EmojiSubstituteString);
+            nick = EmojiRegex.Replace(nick, EmojiSubstitute);
 
             uint color = 0xFFFFFFFF;
             List<Role> roles = user.Roles.ToList();
@@ -435,12 +434,11 @@ namespace DisBot {
 
                 emojis.Add(GetEmoji(emojiID));
                 emojiRanges.Add(new CharacterRange(index - emojiOffset, 1));
-                textBuilder[index] = EmojiSubstitute;
-                int offset = emoji.Length - 1;
-                if (offset > 0) {
-                    emojiOffset += offset;
-                    textBuilder.Remove(index, emoji.Length - 1);
-                }
+
+                emojiOffset += emoji.Length - EmojiSubstitute.Length;
+
+                textBuilder.Remove(index, emoji.Length);
+                textBuilder.Insert(index, EmojiSubstitute);
             }
 
             text = textBuilder.ToString();
@@ -509,10 +507,10 @@ namespace DisBot {
                             Image emoji = emojis[i];
                             Rectangle emojiCharRect = Rectangle.Round(emojiRegions[i].GetBounds(g));
 
-                            g.FillRectangle(BgBrush, x + emojiCharRect.X, y + emojiCharRect.Y, 24, 22);
+                            g.FillRectangle(BgBrush, x + emojiCharRect.X, y + emojiCharRect.Y, 28, 22);
 
                             if (emoji == null) continue;
-                            g.DrawImage(emoji, x + emojiCharRect.X, y + emojiCharRect.Y, 22, 22);
+                            g.DrawImage(emoji, x + emojiCharRect.X + 4, y + emojiCharRect.Y, 22, 22);
                         }
                     }
                 }
