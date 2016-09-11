@@ -848,6 +848,14 @@ namespace DisBot {
                         builder.AppendLine();
                         builder.AppendLine($"Use `{server.Prefix}img` for a random image or `{server.Prefix}img QUERY` to search for a specific image.");
 
+                        if (server.Images.Count > 20) {
+                            server.Send(msg.Channel, "The image list is quite big. Sending it to you via PM.");
+
+                            Task.Run(async delegate () {
+                                server.Send(await msg.User.CreatePMChannel(), builder.ToString());
+                            });
+                            return;
+                        }
                         server.Send(msg.Channel, builder.ToString());
                         return;
                     }
