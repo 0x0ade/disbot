@@ -61,8 +61,9 @@ namespace DisBot {
             ,
             RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.ECMAScript
         );
+        public string VariationSelector16 = new string(new char[] { (char) 0xFE0F });
 
-        public string EmojiSubstitute = "   ";
+        public string EmojiSubstitute = "    ";
 
         public override void Init() {
             try {
@@ -369,6 +370,9 @@ namespace DisBot {
             string nick = user.Nickname ?? user.Name;
             nick = EmojiRegex.Replace(nick, EmojiSubstitute);
 
+            text = text.Replace(VariationSelector16, "");
+            nick = nick.Replace(VariationSelector16, "");
+
             uint color = 0xFFFFFFFF;
             List<Role> roles = user.Roles.ToList();
             roles.Sort(delegate (Role a, Role b) {
@@ -430,10 +434,10 @@ namespace DisBot {
 
                 string emoji = m.Value;
                 int emojiID = Emojis.IndexOf(m.Value);
-                int index = m.Index;
+                int index = m.Index - emojiOffset;
 
                 emojis.Add(GetEmoji(emojiID));
-                emojiRanges.Add(new CharacterRange(index - emojiOffset, 1));
+                emojiRanges.Add(new CharacterRange(index, 1));
 
                 emojiOffset += emoji.Length - EmojiSubstitute.Length;
 
