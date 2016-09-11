@@ -48,6 +48,7 @@
   <ItemGroup>
     <Compile Include="DisBotCommand.cs" />
     <Compile Include="DisBotCore.cs" />
+    <Compile Include="DisBotModule.cs" />
     <Compile Include="modules\DisBotQuoteModule.cs" />
     <Compile Include="DisBotServerConfig.cs" />
     <Compile Include="CircularBuffer.cs" />

@@ -25,13 +25,13 @@ namespace DisBot {
         public string ConfigFile = "config.txt";
         public string ImageDir = "images";
 
-        public ulong OverlordID = 93713629047697408UL;
         public string RoleCommander = "Bot Commander";
         public string RoleBlacklist = "Bot Blacklist";
 
         public string CommandNotFound = "Command not found: `{0}`";
 
-        public CircularBuffer<Message> MessageBuffer = new CircularBuffer<Message>();
+        public CircularBuffer<Message> MessageBuffer = new CircularBuffer<Message>(64);
+        protected Dictionary<Channel, CircularBuffer<Message>> _channelMessageBuffers = new Dictionary<Channel, CircularBuffer<Message>>();
         public CircularBuffer<string> LogBuffer = new CircularBuffer<string>();
         protected Dictionary<string, CircularBuffer<string>> _taggedLogBuffers = new Dictionary<string, CircularBuffer<string>>();
 
@@ -43,13 +43,15 @@ namespace DisBot {
         public List<string> ImageBlacklist = new List<string>();
         public string LastImage;
 
+        public Dictionary<string, object> Data = new Dictionary<string, object>();
+
         public Dictionary<string, Action<string>> OnLoad = new Dictionary<string, Action<string>>();
         public Dictionary<string, Func<string>> OnSave = new Dictionary<string, Func<string>>();
 
         public DisBotServerConfig(Server server) {
             Server = server;
 
-            Dir = server != null ? server.Name + "-" + server.Id : "PM";
+            Dir = server != null ? server.Id.ToString() : "PM";
 
             OnLoad["role.commander"] = (s) => RoleCommander = s;
             OnSave["role.commander"] = () => RoleCommander;
@@ -92,6 +94,9 @@ namespace DisBot {
                 string line = lines[i];
                 line = line.Trim();
                 string[] data = line.Split(':');
+                if (data.Length < 2) {
+                    data = new string[] { line.TrimEnd(':').Trim(), "" };
+                }
                 if (2 < data.Length) {
                     StringBuilder newData = new StringBuilder();
                     for (int ii = 1; ii < data.Length; ii++) {
@@ -212,6 +217,7 @@ namespace DisBot {
 
         public virtual async void MessageReceived(object sender, MessageEventArgs e) {
             MessageBuffer.Add(e.Message);
+            GetMessageBuffer(e.Channel, true).Add(e.Message);
             Log(e.Message.IsAuthor ? "self" : e.Message.User.IsBot ? "bot" : e.Message.Text.StartsWithInvariant(Prefix) ? "cmd" : "msg",
                 e.Channel.Name, e.User.ToString(), e.Message.Text, time: e.Message.Timestamp);
             if (e.Message.IsAuthor) return;
@@ -229,10 +235,18 @@ namespace DisBot {
             text = text.Trim();
             if (text.Length == 0) return;
             if (text.Length > DiscordConfig.MaxMessageSize) {
-                int lastnl = text.LastIndexOf("\n", DiscordConfig.MaxMessageSize, DiscordConfig.MaxMessageSize);
-                if (lastnl < 0) lastnl = DiscordConfig.MaxMessageSize;
-                await channel.SendMessage(text.Substring(0, lastnl));
-                Send(channel, text.Substring(lastnl));
+                int lastws = text.LastIndexOf('\n', DiscordConfig.MaxMessageSize - 1, DiscordConfig.MaxMessageSize);
+                if (lastws < 0) {
+                    for (int i = DiscordConfig.MaxMessageSize; i >= 0; i--) {
+                        if (char.IsWhiteSpace(text[i])) {
+                            lastws = i;
+                            break;
+                        }
+                    }
+                }
+                if (lastws < 0) lastws = DiscordConfig.MaxMessageSize;
+                await channel.SendMessage(text.Substring(0, lastws));
+                Send(channel, text.Substring(lastws));
                 return;
             }
             await channel.SendMessage(text);
@@ -340,18 +354,19 @@ namespace DisBot {
             Console.WriteLine(message);
             LogBuffer.Add(message);
 
+            if (string.IsNullOrEmpty(LogFile)) return;
             string log = Path.Combine(DisBotCore.RootDir, Dir, LogFile);
-
-            if (string.IsNullOrEmpty(log)) return;
             // TODO better.
+            lock (LogFile)
             try {
                 File.AppendAllText(log, message.Replace("\n", DisBotCore.NL));
                 File.AppendAllText(log, DisBotCore.NL);
             } catch (IOException) { /* Disk IO. */ }
 
+            if (string.IsNullOrEmpty(DisBotCore.GlobalLogFile)) return;
             log = Path.Combine(DisBotCore.RootDir, DisBotCore.GlobalLogFile);
-            if (string.IsNullOrEmpty(log)) return;
             // TODO better.
+            lock (DisBotCore.GlobalLogFile)
             try {
                 File.AppendAllText(log, message.Replace("\n", DisBotCore.NL));
                 File.AppendAllText(log, DisBotCore.NL);
@@ -362,6 +377,7 @@ namespace DisBot {
             if (tag == "all") return LogBuffer;
 
             CircularBuffer<string> buffer;
+            lock (LogBuffer)
             if (!_taggedLogBuffers.TryGetValue(tag, out buffer) && create) {
                 _taggedLogBuffers[tag] = buffer = new CircularBuffer<string>();
             }
@@ -373,8 +389,17 @@ namespace DisBot {
             }
         }
 
+        public CircularBuffer<Message> GetMessageBuffer(Channel channel, bool create = false) {
+            CircularBuffer<Message> buffer;
+            lock (LogBuffer)
+                if (!_channelMessageBuffers.TryGetValue(channel, out buffer) && create) {
+                    _channelMessageBuffers[channel] = buffer = new CircularBuffer<Message>(64);
+                }
+            return buffer;
+        }
+
         public virtual bool IsBlacklisted(User user, Message msg = null) {
-            if (user.Id == OverlordID) {
+            if (user.Id == DisBotCore.OverlordID) {
                 return false;
             }
             foreach (Role role in user.Roles) {
@@ -388,7 +413,7 @@ namespace DisBot {
             return false;
         }
         public virtual bool IsBotCommander(User user, Message msg = null) {
-            if (user.Id == OverlordID) {
+            if (user.Id == DisBotCore.OverlordID) {
                 return true;
             }
             foreach (Role role in user.Roles) {
@@ -398,6 +423,15 @@ namespace DisBot {
             }
             if (msg != null) {
                 Send(msg.Channel, "You're not a bot commander.");
+            }
+            return false;
+        }
+        public virtual bool IsBotOverlord(User user, Message msg = null) {
+            if (user.Id == DisBotCore.OverlordID) {
+                return true;
+            }
+            if (msg != null) {
+                Send(msg.Channel, "You're not the bot overlord.");
             }
             return false;
         }

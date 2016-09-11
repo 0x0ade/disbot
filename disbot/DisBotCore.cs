@@ -16,6 +16,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DColor = System.Drawing.Color;
 
@@ -64,12 +65,9 @@ namespace DisBot {
             p.StandardInput.WriteLine();
             p.WaitForExit();
             p.CancelOutputRead();
-
             if (data.Length == 0) {
                 return Environment.OSVersion.ToString();
             }
-
-
 
             p = new Process();
             p.StartInfo.FileName = "lsb_release";
@@ -105,10 +103,10 @@ namespace DisBot {
 
         private static DiscordClient Client;
 
-        public static string RootDir = "disbot";
+        public readonly static string RootDir = "disbot";
 
-        public static string GlobalLogFile = "globallog.txt";
-        public static string TokenFile = "token.txt";
+        public readonly static string GlobalLogFile = "globallog.txt";
+        public readonly static string TokenFile = "token.txt";
 
         public static Random RNG;
 
@@ -120,11 +118,11 @@ namespace DisBot {
         public static Bitmap SharedBitmap;
         public static Graphics SharedGraphics;
 
-        public static bool IsMono {
-            get {
-                return Type.GetType("Mono.Runtime") != null;
-            }
-        }
+        public readonly static bool IsMono = Type.GetType("Mono.Runtime") != null;
+
+        public static ulong OverlordID = 93713629047697408UL;
+
+        public static Regex PathVerifyRegex = new Regex("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars())) + "]");
 
         static DisBotCore() {
             try {
@@ -154,6 +152,18 @@ namespace DisBot {
                     return true;
                 };
             }
+
+            AppDomain.CurrentDomain.UnhandledException += delegate (object sender, UnhandledExceptionEventArgs eargs) {
+                Exception e = (Exception) eargs.ExceptionObject;
+                
+                if (string.IsNullOrEmpty(GlobalLogFile)) return;
+                string log = Path.Combine(RootDir, GlobalLogFile);
+                // TODO better.
+                lock (GlobalLogFile)
+                try {
+                    File.AppendAllText(log, "----------------\nCRITICAL! CRITICAL!----------------\n" + e.ToString() + "\n----------------\n\n");
+                } catch (IOException) { /* Disk IO. */ }
+            };
 
             Init();
             Run();
@@ -305,6 +315,64 @@ namespace DisBot {
                         server.Load();
                         server.Save();
                         server.Send(msg.Channel, "Data imported.");
+                        return;
+                    }
+
+                    if (args.Length >= 2 && args[0] == "name") {
+                        if (!server.IsBotOverlord(msg.User, msg)) {
+                            return;
+                        }
+
+                        Task.Run(async delegate () {
+                            try {
+                                string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 4 + 1);
+                                data = data.Trim();
+                                await Client.CurrentUser.Edit(username: data);
+                                server.Send(msg.Channel, "Name changed.");
+                            } catch (Exception e) {
+                                server.Send(msg.Channel, $"Could not change name! Consult `{server.Prefix}log internal`");
+                                server.Log("internal", e.ToString());
+                            }
+                        });
+                        return;
+                    }
+
+                    if (args.Length >= 2 && args[0] == "avatar") {
+                        if (!server.IsBotOverlord(msg.User, msg)) {
+                            return;
+                        }
+
+                        Task.Run(async delegate () {
+                            try {
+                                string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 6 + 1);
+                                data = data.Trim();
+                                using (MemoryStream ms = new MemoryStream()) {
+                                    using (WebClient wc = new WebClient())
+                                    using (Stream s = wc.OpenRead(data)) {
+                                        s.CopyTo(ms);
+                                    }
+
+                                    ms.Position = 0;
+                                    await Client.CurrentUser.Edit(avatar: ms);
+                                }
+                                server.Send(msg.Channel, "Avatar changed.");
+                            } catch (Exception e) {
+                                server.Send(msg.Channel, $"Could not change avatar! Consult `{server.Prefix}log internal`");
+                                server.Log("internal", e.ToString());
+                            }
+                        });
+                        return;
+                    }
+
+                    if (args.Length >= 2 && args[0] == "game") {
+                        if (!server.IsBotOverlord(msg.User, msg)) {
+                            return;
+                        }
+
+                        string data = msg.Text.Substring(msg.Text.IndexOf(' ') + 4 + 1);
+                        data = data.Trim();
+                        Client.SetGame(data);
+                        server.Send(msg.Channel, "Game changed.");
                         return;
                     }
 
@@ -975,51 +1043,11 @@ This account will never be used again, and I genuinely don't care what you do to
                     g.FillPath(brush, ellipse);
                 }
 
-                if (!IsMono) {
-                    BitmapData imgData = img.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                    BitmapData maskData = mask.LockBits(bounds, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
-                    unsafe
-                    {
-                        byte* imgP = (byte*) imgData.Scan0.ToPointer();
-                        byte* maskP = (byte*) maskData.Scan0.ToPointer();
-                        imgP += 3; // a
-                        maskP += 3; // a
-                        for (int i = size * size; i > 0; i--) {
-                            *imgP = *maskP;
-                            imgP += 4;
-                            maskP += 4;
-                        }
-                    }
-                    img.UnlockBits(imgData);
-                    mask.UnlockBits(maskData);
-
-                } else {
-                    for (int y = 0; y < size; y++) {
-                        for (int x = 0; x < size; x++) {
-                            byte a = mask.GetPixel(x, y).A;
-                            float f = a / 255f;
-                            float ff = 1f - f;
-
-                            if (f < 0.1f) {
-                                img.SetPixel(x, y, _roundAvatarBG);
-                                continue;
-                            }
-
-                            DColor cA = img.GetPixel(x, y);
-                            DColor cB = _roundAvatarBG;
-                            float r = cA.R * f + cB.R * ff;
-                            float g = cA.G * f + cB.G * ff;
-                            float b = cA.B * f + cB.B * ff;
-
-                            img.SetPixel(x, y, DColor.FromArgb(a, (byte) r, (byte) g, (byte) b));
-                        }
-                    }
-                }
+                img.ApplyMask(mask);
             }
 
             return img;
         }
-
         public static async Task<Image> GetAvatar(User user) {
             return await Task.Run(delegate () {
                 using (WebClient wc = new WebClient()) {
@@ -1028,6 +1056,51 @@ This account will never be used again, and I genuinely don't care what you do to
                     }
                 }
             });
+        }
+
+        public static void ApplyMask(this Bitmap img, Bitmap mask) {
+            Rectangle bounds = new Rectangle(0, 0, img.Width, img.Height);
+
+            if (!IsMono) {
+                BitmapData imgData = img.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                BitmapData maskData = mask.LockBits(bounds, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+                unsafe
+                {
+                    byte* imgP = (byte*) imgData.Scan0.ToPointer();
+                    byte* maskP = (byte*) maskData.Scan0.ToPointer();
+                    imgP += 3; // a
+                    maskP += 3; // a
+                    for (int i = bounds.Width * bounds.Height; i > 0; i--) {
+                        *imgP = *maskP;
+                        imgP += 4;
+                        maskP += 4;
+                    }
+                }
+                img.UnlockBits(imgData);
+                mask.UnlockBits(maskData);
+
+            } else {
+                for (int y = bounds.Height - 1; y >= 0; y--) {
+                    for (int x = bounds.Width - 1; x >= 0; x--) {
+                        byte a = mask.GetPixel(x, y).A;
+                        float f = a / 255f;
+                        float ff = 1f - f;
+
+                        if (f < 0.007f) {
+                            img.SetPixel(x, y, _roundAvatarBG);
+                            continue;
+                        }
+
+                        DColor cA = img.GetPixel(x, y);
+                        DColor cB = _roundAvatarBG;
+                        float r = cA.R * f + cB.R * ff;
+                        float g = cA.G * f + cB.G * ff;
+                        float b = cA.B * f + cB.B * ff;
+
+                        img.SetPixel(x, y, DColor.FromArgb((byte) r, (byte) g, (byte) b));
+                    }
+                }
+            }
         }
 
 
