@@ -383,6 +383,42 @@ namespace DisBot {
                 }
             }
 
+
+            Message.File thumbFile =
+                (qmsg.Embeds.Length != 0 ? qmsg.Embeds[0].Thumbnail : null) ??
+                (qmsg.Attachments.Length != 0 && qmsg.Attachments[0].Width != null ? qmsg.Attachments[0] : null);
+            int thumbWidth = 0;
+            int thumbHeight = 0;
+            if (thumbFile != null) {
+                thumbWidth = thumbFile.Width.Value;
+                thumbHeight = thumbFile.Height.Value;
+                if (thumbWidth > 520) {
+                    float ratio = thumbWidth / (float) thumbHeight;
+                    thumbWidth = 520;
+                    thumbHeight = (int) (thumbWidth / ratio);
+                }
+            }
+
+            Task<Image> thumbT = Task.Run(delegate () {
+                try {
+                    if (thumbFile != null) {
+                        using (WebClient wc = new WebClient()) {
+                            using (Stream s = wc.OpenRead(thumbFile.Url)) {
+                                Image thumb = Image.FromStream(s);
+                                if (thumb.Width != thumbWidth) {
+                                    Image thumbO = thumb;
+                                    thumb = new Bitmap(thumb, thumbWidth, thumbHeight);
+                                    thumbO.Dispose();
+                                }
+                                return thumb;
+                            }
+                        }
+                    }
+                } catch (Exception) { }
+                return null;
+            });
+
+
             List<Image> emojis = new List<Image>();
             List<CharacterRange> emojiRanges = new List<CharacterRange>();
 
@@ -409,54 +445,23 @@ namespace DisBot {
 
             text = textBuilder.ToString();
 
+
             SizeF textSize = DisBotCore.SharedGraphics.MeasureString(text, Medium15, maxWidth);
             SizeF textThumbSize = textSize;
             SizeF nickSize = DisBotCore.SharedGraphics.MeasureString(nick, Medium16);
 
-            Message.File thumbFile =
-                (qmsg.Embeds.Length != 0 ? qmsg.Embeds[0].Thumbnail : null) ??
-                (qmsg.Attachments.Length != 0 && qmsg.Attachments[0].Width != null ? qmsg.Attachments[0] : null);
-            int thumbWidth = 0;
-            int thumbHeight = 0;
-
             if (thumbFile != null) {
-                thumbWidth = thumbFile.Width.Value;
-                thumbHeight = thumbFile.Height.Value;
-                if (thumbWidth > 520) {
-                    float ratio = thumbWidth / (float) thumbHeight;
-                    thumbWidth = 520;
-                    thumbHeight = (int) (thumbWidth / ratio);
-                }
                 textThumbSize = new SizeF(
                     Math.Min(Math.Max(textSize.Width, thumbWidth), maxWidth),
                     textSize.Height + 4 + thumbHeight
                 );
             }
 
+
             Bitmap img = new Bitmap(
                 (int) Math.Max(nickSize.Width + 256 + 46, textThumbSize.Width + 46) + 40,
                 (int) textThumbSize.Height + 48
             );
-
-            Task<Image> thumbT = Task.Run(delegate () {
-                try {
-                    if (thumbFile != null) {
-                        using (WebClient wc = new WebClient()) {
-                            using (Stream s = wc.OpenRead(thumbFile.Url)) {
-                                Image thumb = Image.FromStream(s);
-                                if (thumb.Width != thumbWidth) {
-                                    Image thumbO = thumb;
-                                    thumb = new Bitmap(thumb, thumbWidth, thumbHeight);
-                                    thumbO.Dispose();
-                                }
-                                return thumb;
-                            }
-                        }
-                    }
-                } catch (Exception) { }
-                return null;
-            });
-
             using (Graphics g = Graphics.FromImage(img)) {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
