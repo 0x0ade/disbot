@@ -63,7 +63,7 @@ namespace DisBot {
             RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.ECMAScript
         );
         public Regex CustomEmojiRegex = new Regex(
-            @"<:.*:(.*)>"
+            @"<:\w*:(\d*)>"
             ,
             RegexOptions.Compiled | RegexOptions.Multiline
         );
@@ -152,9 +152,19 @@ namespace DisBot {
             if (args.Length >= 1 && args[0] == "+") {
                 int index = 1;
                 if (args.Length >= 2) {
-                    text = msg.Text.Substring(msg.Text.IndexOf(' ') + 2).Trim();
+                    text = msg.Text.Substring(msg.Text.IndexOf(' ') + args[0].String.Length + 1).Trim();
 
-                    if (!int.TryParse(args[1], out index)) {
+                    if (int.TryParse(args[1], out index)) {
+                        index = buffer.CurrentSize - index - 1;
+                        if (index <= 0 || buffer.CurrentSize <= index) {
+                            server.Send(msg.Channel, "disbot does not remember everything!");
+                            return;
+                        }
+                        qmsg = buffer[index];
+                        user = qmsg.User;
+                        text = qmsg.Text;
+
+                    } else {
                         user = msg.MentionedUsers.FirstOrDefault();
                         if (user == null) {
                             if (text.StartsWith("@")) {
@@ -167,6 +177,8 @@ namespace DisBot {
                                 return;
                             }
 
+                            text = string.Empty;
+
                         } else {
                             string userTag = "@" + (user.Nickname ?? user.Name);
                             if (!text.StartsWithInvariant(userTag)) {
@@ -174,38 +186,28 @@ namespace DisBot {
                                 return;
                             }
                             text = text.Substring(userTag.Length).Trim();
-                        }
-
-                        for (int i = 1; i < buffer.CurrentSize; i++) {
-                            Message bmsg = buffer[buffer.CurrentSize - i - 1];
-                            if (bmsg.User == user) {
-                                qmsg = bmsg;
-                                break;
+                            fake = text.Length != 0;
+                            if (fake) {
+                                qmsg = msg;
                             }
                         }
 
-                        if (qmsg == null && text.Length == 0) {
+                        if (!fake) {
+                            for (int i = 1; i < buffer.CurrentSize; i++) {
+                                Message bmsg = buffer[buffer.CurrentSize - i - 1];
+                                if (bmsg.User == user) {
+                                    qmsg = bmsg;
+                                    user = qmsg.User;
+                                    text = qmsg.Text;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (qmsg == null) {
                             server.Send(msg.Channel, "disbot does not remember everything!");
                             return;
                         }
-                    } else {
-                        user = null; // Will be assigned later.
-                        text = "";
-                    }
-
-                    if (qmsg == null && text.Length == 0) {
-                        index = buffer.CurrentSize - index - 1;
-                        if (index <= 0 || buffer.CurrentSize <= index) {
-                            server.Send(msg.Channel, "disbot does not remember everything!");
-                            return;
-                        }
-
-                        qmsg = buffer[index];
-                    }
-
-                    if (qmsg != null) {
-                        user = qmsg.User;
-                        text = qmsg.Text;
                     }
 
                 } else {
@@ -230,12 +232,13 @@ namespace DisBot {
                     server.Send(msg.Channel, "Quote already stored!");
                     return;
                 }
-                using (Image img = await CreateQuoteImage(user, qmsg, text, qmsg == null)) {
+                using (Image img = await CreateQuoteImage(user, qmsg, text, fake)) {
                     using (Stream s = img.ToStream(ImageFormat.Png)) {
                         using (Stream fs = File.OpenWrite(path)) {
                             s.CopyTo(fs);
                         }
                     }
+                    server.Data["LastQImg"] = path;
                     server.Send(msg.Channel, "Quote stored!");
                 }
 
@@ -243,7 +246,15 @@ namespace DisBot {
             }
 
             if (args.Length == 1 && args[0] == "-") {
-                server.Send(msg.Channel, "Not yet!");
+                object lastqimgO;
+                if (!server.Data.TryGetValue("LastQImg", out lastqimgO) || lastqimgO == null) {
+                    server.Send(msg.Channel, "disbot no remembering quote!");
+                    return;
+                }
+
+                File.Delete((string) lastqimgO);
+                server.Send(msg.Channel, "Quote removed!");
+                server.Data["LastQImg"] = null;
                 return;
             }
 

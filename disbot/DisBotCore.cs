@@ -1027,7 +1027,7 @@ This account will never be used again, and I genuinely don't care what you do to
             await Task.Run(() => GetServer(e.Server, true).MessageReceived(sender, e));
         }
 
-
+        private static Dictionary<string, Image> _avatarCache = new Dictionary<string, Image>();
         private readonly static DColor _roundAvatarBG = DColor.FromArgb(unchecked((int) 0xFF36393E));
         public static async Task<Image> GetAvatarRound(User user, int size = 40) {
             Bitmap img = new Bitmap(size, size);
@@ -1036,9 +1036,8 @@ This account will never be used again, and I genuinely don't care what you do to
             using (Graphics g = Graphics.FromImage(img)) {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                using (Image avatar = await GetAvatar(user)) {
-                    g.DrawImage(avatar, bounds, 0, 0, avatar.Width, avatar.Height, GraphicsUnit.Pixel);
-                }
+                Image avatar = await GetAvatar(user);
+                g.DrawImage(avatar, bounds, 0, 0, avatar.Width, avatar.Height, GraphicsUnit.Pixel);
             }
 
             using (Bitmap mask = new Bitmap(size, size)) {
@@ -1058,11 +1057,15 @@ This account will never be used again, and I genuinely don't care what you do to
         }
         public static async Task<Image> GetAvatar(User user) {
             return await Task.Run(delegate () {
-                using (WebClient wc = new WebClient()) {
+                Image img;
+                if (!_avatarCache.TryGetValue(user.AvatarId, out img)) {
+                    using (WebClient wc = new WebClient())
                     using (Stream s = wc.OpenRead(user.AvatarUrl)) {
-                        return Image.FromStream(s);
+                        img = Image.FromStream(s);
                     }
+                    _avatarCache[user.AvatarId] = img;
                 }
+                return img;
             });
         }
 
